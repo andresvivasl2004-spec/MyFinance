@@ -7,9 +7,9 @@ combination automatically.
 
 Usage
 -----
-    from auto_parser import detect_and_parse
+    from finance.auto_parser import detect_and_parse
 
-    result = detect_and_parse("mayo.xlsx")
+    result = detect_and_parse("may.xlsx")
     print(result["rows"])       # list of {date, amount, description}
     print(result["detected"])   # which columns were chosen
     print(result["confidence"]) # 0.0 – 1.0
@@ -246,8 +246,8 @@ def detect_and_parse(path: str) -> dict:
 
     if best is None:
         raise ValueError(
-            "No se pudo detectar la estructura del archivo.\n"
-            "Asegúrate de que tiene al menos 3 columnas y 2 filas de datos."
+            "Could not detect the file structure.\n"
+            "Make sure it has at least 3 columns and 2 rows of data."
         )
 
     return _build_result(best)

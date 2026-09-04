@@ -17,16 +17,16 @@ Adding a new bank
 
 Usage (command line)
 --------------------
-  python categorizer.py mayo.xlsx         --bank bbva
-  python categorizer.py myinvestor.csv    --bank myinvestor
+  python -m finance.categorizer may.xlsx         --bank bbva
+  python -m finance.categorizer myinvestor.csv    --bank myinvestor
 
 Usage (from notebook)
 ---------------------
-  from categorizer import categorize_csv
-  categorize_csv("mayo.xlsx",          bank="bbva",        output_path="bbva_may2026.csv")
+  from finance.categorizer import categorize_csv
+  categorize_csv("may.xlsx",           bank="bbva",        output_path="bbva_may2026.csv")
   categorize_csv("myinvestor_may.csv", bank="myinvestor",  output_path="myinvestor_may2026.csv")
 
-Learned merchants are saved in comercios_conocidos.json — you are never asked
+Learned merchants are saved in data/known_merchants.json — you are never asked
 about the same merchant twice across sessions.
 """
 
@@ -189,7 +189,6 @@ BASE_MERCHANTS: dict[str, str] = {
     "deliveroo":             "Dining & Food",
     "pizza":                 "Dining & Food",
     "crispy chicken":        "Dining & Food",
-    "isaac peral":           "Dining & Food",   # BK22474 ISAAC PERAL (Burger King) 
     # Transport
     "renfe":                 "Transport",
     "cabify":                "Transport",
@@ -210,13 +209,11 @@ BASE_MERCHANTS: dict[str, str] = {
     "adeslas":               "Health & Beauty",
     "dentista":              "Health & Beauty",
     "optica":                "Health & Beauty",
-    "cnio":                  "Health & Beauty",   # cancer research center / clinic
     #Pet
     "veterinario":           "Pet",
     "centro veterinario":    "Pet",
     # Gym
     "gym":                   "Gym",
-    "iberia sl":              "Gym",
     # Entertainment / Subscriptions
     "spotify":               "Entertainment",
     "netflix":               "Entertainment",
@@ -239,10 +236,7 @@ BASE_MERCHANTS: dict[str, str] = {
     "flying tiger":          "Shopping",
     "game ":                 "Shopping",         # videogame shop
     "casa del libro":        "Shopping",
-    "filx":                  "Shopping",         # online shop
     # Education
-    "fundacion u.c.m.":      "Education",
-    "ucm":                   "Education",
     "universidad":           "Education",
     # Utilities
     "endesa":                "Electricity",
@@ -256,7 +250,6 @@ BASE_MERCHANTS: dict[str, str] = {
     "floristeria":           "Social & Gifts",
     "cumple":                "Social & Gifts",
     "regalo":                "Social & Gifts",
-    "muralla":               "Social & Gifts",
     # Income
     "nomina":                "Income",
     "salary":                "Income",
@@ -278,7 +271,7 @@ BASE_MERCHANTS: dict[str, str] = {
     "ae acc":                "Investments",
 }
 
-KNOWN_MERCHANTS_FILE = Path(__file__).parent / "comercios_conocidos.json"
+KNOWN_MERCHANTS_FILE = Path(__file__).resolve().parent.parent / "data" / "known_merchants.json"
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -580,7 +573,7 @@ def list_banks() -> None:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# QUICK TEST  (run: python categorizer.py --test mayo.xlsx --bank bbva)
+# QUICK TEST  (run: python -m finance.categorizer --test may.xlsx --bank bbva)
 # ─────────────────────────────────────────────────────────────────────────────
 
 def _dry_run(input_path: str, bank: str) -> None:
@@ -617,9 +610,9 @@ if __name__ == "__main__":
     if not args.input or not args.bank:
         parser.print_help()
         print("\nExamples:")
-        print("  python categorizer.py mayo.xlsx          --bank bbva")
-        print("  python categorizer.py myinvestor_may.csv --bank myinvestor")
-        print("  python categorizer.py mayo.xlsx          --bank bbva --test\n")
+        print("  python -m finance.categorizer may.xlsx          --bank bbva")
+        print("  python -m finance.categorizer myinvestor_may.csv --bank myinvestor")
+        print("  python -m finance.categorizer may.xlsx          --bank bbva --test\n")
         sys.exit(1)
 
     if not Path(args.input).exists():

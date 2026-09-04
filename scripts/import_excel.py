@@ -1,9 +1,9 @@
 """
-importar_excel.py — Importa un Excel ya clasificado al archivo global.
+import_excel.py — Import an already-categorised Excel file into the global file.
 
-Uso:
-    python importar_excel.py mi_excel.xlsx
-    python importar_excel.py mi_excel.xlsx --source "MyInvestor"
+Usage:
+    python scripts/import_excel.py my_excel.xlsx
+    python scripts/import_excel.py my_excel.xlsx --source "MyInvestor"
 """
 
 import sys
@@ -12,10 +12,10 @@ import pandas as pd
 from pathlib import Path
 from datetime import datetime
 
-sys.path.insert(0, str(Path(__file__).parent))
-from storage import save_to_global
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+from finance.storage import save_to_global
 
-# Formatos de fecha que se intentan automáticamente
+# Date formats tried automatically
 DATE_FORMATS = [
     "%d-%m-%y",    # 28-04-26
     "%d-%m-%Y",    # 28-04-2026
@@ -25,7 +25,7 @@ DATE_FORMATS = [
 ]
 
 def parse_date(raw) -> str | None:
-    s = str(raw).strip().split(" ")[0]  # quita hora si la hay
+    s = str(raw).strip().split(" ")[0]  # drop the time part, if any
     for fmt in DATE_FORMATS:
         try:
             return datetime.strptime(s, fmt).strftime("%Y-%m-%d")
@@ -48,9 +48,9 @@ def load_existing_excel(path: str) -> pd.DataFrame:
             continue
     if df is None:
         raise ValueError(
-            "No se pudo leer el archivo. Asegúrate de que es un .xlsx o .xls válido.\n"
-            "Si es un .csv, renómbralo a .csv e impórtalo así:\n"
-            "  python importar_excel.py archivo.csv"
+            "Could not read the file. Make sure it's a valid .xlsx or .xls file.\n"
+            "If it's a .csv, rename it to .csv and import it like this:\n"
+            "  python scripts/import_excel.py file.csv"
         )
 
     # ── CSV support ──────────────────────────────────────────────────────────
@@ -67,25 +67,25 @@ def load_existing_excel(path: str) -> pd.DataFrame:
             if df is not None and len(df.columns) >= 4:
                 break
         if df is None:
-            raise ValueError("No se pudo leer el CSV.")
+            raise ValueError("Could not read the CSV file.")
 
-    # Detectar si tiene cabecera (si la primera fila contiene palabras como Date/Fecha)
+    # Detect whether there's a header row (if the first row contains words like Date/Amount)
     first = " ".join(str(v).lower() for v in df.iloc[0].tolist())
     if any(w in first for w in ("date", "fecha", "amount", "importe", "category")):
         df.columns = df.iloc[0].tolist()
         df = df.iloc[1:].reset_index(drop=True)
     else:
-        # Sin cabecera: asignamos por posición (col 0=fecha, 1=importe, 2=descripción, 3=categoría)
+        # No header: assign by position (col 0=date, 1=amount, 2=description, 3=category)
         df.columns = ["Date", "Amount", "Description", "Category"] + [f"extra_{i}" for i in range(len(df.columns) - 4)]
 
     df = df[["Date", "Amount", "Description", "Category"]].copy()
     df = df.dropna(subset=["Date", "Amount"])
 
-    # Normalizar fechas
+    # Normalise dates
     df["Date"] = df["Date"].apply(parse_date)
     df = df[df["Date"].notna()].copy()
 
-    # Normalizar importes
+    # Normalise amounts
     df["Amount"] = (
         df["Amount"].astype(str)
         .str.replace("€", "", regex=False)
@@ -99,31 +99,31 @@ def load_existing_excel(path: str) -> pd.DataFrame:
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Importa Excel clasificado al archivo global.")
-    parser.add_argument("file",            help="Excel a importar (.xlsx)")
-    parser.add_argument("--source", "-s",  default="Imported", help='Etiqueta de cuenta (ej: "MyInvestor")')
+    parser = argparse.ArgumentParser(description="Import a categorised Excel file into the global file.")
+    parser.add_argument("file",            help="Excel file to import (.xlsx)")
+    parser.add_argument("--source", "-s",  default="Imported", help='Account label (e.g. "MyInvestor")')
     args = parser.parse_args()
 
     path = Path(args.file)
     if not path.exists():
-        print(f"\nERROR: No se encuentra '{path}'\n")
+        print(f"\nERROR: '{path}' not found\n")
         sys.exit(1)
 
-    print(f"\nLeyendo {path}...")
+    print(f"\nReading {path}...")
     df = load_existing_excel(str(path))
 
-    print(f"\n  {len(df)} filas encontradas")
-    print(f"  Período: {df['Date'].min()} → {df['Date'].max()}")
-    print(f"\nPrimeras filas:")
+    print(f"\n  {len(df)} rows found")
+    print(f"  Period: {df['Date'].min()} → {df['Date'].max()}")
+    print(f"\nFirst rows:")
     print(df.head(5).to_string(index=False))
 
-    print(f"\n¿Importar {len(df)} filas con source='{args.source}'? (s/n): ", end="")
-    if input().strip().lower() != "s":
-        print("Cancelado.")
+    print(f"\nImport {len(df)} rows with source='{args.source}'? (y/n): ", end="")
+    if input().strip().lower() != "y":
+        print("Cancelled.")
         sys.exit(0)
 
     n = save_to_global(df, source=args.source)
-    print(f"\n✅ Hecho. {n} filas nuevas añadidas a global_spending.xlsx")
+    print(f"\n✅ Done. {n} new rows added to global_spending.xlsx")
 
 
 if __name__ == "__main__":

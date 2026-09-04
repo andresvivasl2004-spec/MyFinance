@@ -15,7 +15,7 @@ GROCERY_MERCHANTS = {
     "LIDL":      ["LIDL"],
     "Mercadona": ["MERCADONA"],
     "Alcampo":   ["ALCAMPO"],
-    "Simply":    ["SIMPLY", "BRAVO MURILLO"],
+    "Simply":    ["SIMPLY"],
     "Fruteria":  ["FRUTERIA", "FRUTAS"],
     "Obrador":   ["OBRADOR"],
 }

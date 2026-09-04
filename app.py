@@ -15,15 +15,15 @@ st.set_page_config(page_title="Finance", page_icon="💰",
 
 sys.path.insert(0, str(Path(__file__).parent))
 
-from auto_parser import detect_and_parse, reparse
-from categories  import load_categories, save_categories, add_category, delete_category, reset_to_defaults
-from categorizer import find_category, load_known_merchants, save_known_merchants, sign_mismatch
-from storage     import save_to_global, load_from_global, global_summary
-from self_transfer import find_transfer_match
-from processor   import process
-from anomaly     import detect, adjusted_process, plot_anomaly_overview
-from charts      import plot_spending_analysis, plot_investment_allocation
-from style       import apply_dark_theme
+from finance.auto_parser import detect_and_parse, reparse
+from finance.categories  import load_categories, save_categories, add_category, delete_category, reset_to_defaults
+from finance.categorizer import find_category, load_known_merchants, save_known_merchants, sign_mismatch
+from finance.storage     import save_to_global, load_from_global, global_summary
+from finance.self_transfer import find_transfer_match
+from finance.processor   import process
+from finance.anomaly     import detect, adjusted_process, plot_anomaly_overview
+from finance.charts      import plot_spending_analysis, plot_investment_allocation
+from finance.style       import apply_dark_theme
 
 apply_dark_theme()
 
@@ -389,7 +389,7 @@ with tab_new:
                     st.rerun()
 
         if st.session_state["stage"] == "done":
-            st.success("✅ Saved. Switch to **📊 Análisis** to see the updated dashboard.")
+            st.success("✅ Saved. Switch to **📊 Expense Analysis** to see the updated dashboard.")
             if st.button("↩  Import another file"):
                 for k in ("stage", "raw_rows", "cat_index", "categorized",
                           "pending", "parse_result"):
@@ -403,7 +403,7 @@ with tab_new:
 # ══════════════════════════════════════════════════════════════════════════════
 with tab_analysis:
     if not filtered_data:
-        st.info("No data yet. Go to **📥 Nuevo mes** to import your first file.")
+        st.info("No data yet. Go to **📥 Add New Month** to import your first file.")
     else:
         d = process(filtered_data, start_month=START_MONTH, end_month=END_MONTH)
         if not d["all_months_str"]:

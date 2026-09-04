@@ -1,14 +1,14 @@
 """
 categories.py — Persistent, user-editable category list.
 
-Categories are stored in categories.json next to this file.
+Categories are stored in data/categories.json at the project root.
 If the file doesn't exist, the default list is used and written on first save.
 """
 
 import json
 from pathlib import Path
 
-CATEGORIES_FILE = Path(__file__).parent / "categories.json"
+CATEGORIES_FILE = Path(__file__).resolve().parent.parent / "data" / "categories.json"
 
 DEFAULT_CATEGORIES = [
     "Groceries",
