@@ -123,7 +123,7 @@ def main():
         sys.exit(0)
 
     n = save_to_global(df, source=args.source)
-    print(f"\n✅ Hecho. {n} filas nuevas añadidas a gastos_global.xlsx")
+    print(f"\n✅ Hecho. {n} filas nuevas añadidas a global_spending.xlsx")
 
 
 if __name__ == "__main__":

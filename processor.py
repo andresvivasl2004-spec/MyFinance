@@ -189,7 +189,7 @@ def process(
     total_interest    = sum(monthly_interest.values())
     total_investments = sum(monthly_investments.values())
     total_spending    = sum(cat_totals.values()) - total_investments
-    total_inflows     = total_income + total_investments + total_interest
+    total_inflows     = total_income + total_interest
     net_worth         = total_inflows - total_spending
 
     # ── Per-category stats (active months only) ───────────────────────────────

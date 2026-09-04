@@ -1,7 +1,7 @@
 """
 storage.py — Manages the global transaction Excel file.
 
-The global file (gastos_global.xlsx) is the single source of truth.
+The global file (global_spending.xlsx) is the single source of truth.
 Each time you categorise a new bank export, you append it here.
 Duplicate detection ensures running the same month twice never creates double entries.
 
@@ -28,7 +28,7 @@ from openpyxl import load_workbook
 from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 from openpyxl.utils import get_column_letter
 
-GLOBAL_FILE = "gastos_global.xlsx"
+GLOBAL_FILE = "global_spending.xlsx"
 SHEET_NAME  = "Transactions"
 COLUMNS     = ["Date", "Amount", "Description", "Category", "Source"]
 

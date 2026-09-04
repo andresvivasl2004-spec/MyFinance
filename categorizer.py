@@ -282,6 +282,48 @@ KNOWN_MERCHANTS_FILE = Path(__file__).parent / "comercios_conocidos.json"
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+# SIGN-CONSISTENCY CHECK
+# ─────────────────────────────────────────────────────────────────────────────
+# Sign alone can't identify a self-transfer (the outgoing leg is negative
+# like any purchase; the incoming leg is positive like any income). But most
+# other categories only ever make sense with one sign, so a mismatch is a
+# strong signal of a mis-click during review — flag it, don't decide it.
+
+EXPECTED_SIGN: dict[str, str | None] = {
+    "Groceries":        "-",
+    "Dining & Food":    "-",
+    "Transport":        "-",
+    "Gas":              "-",
+    "Health & Beauty":  "-",
+    "Gym":              "-",
+    "Entertainment":    "-",
+    "Shopping":         "-",
+    "Education":        "-",
+    "Rent":             "-",
+    "Electricity":      "-",
+    "Water":            "-",
+    "Phone":            "-",
+    "Social & Gifts":   "-",
+    "Fees & Tax":       "-",
+    "Investments":      "-",
+    "Income":           "+",
+    "Interest":         "+",
+    "Self-transfer":    None,   # either sign is valid
+    "Personal Care":    "-",
+    "Pet":              "-",
+    "Other":            None,   # ambiguous, skip
+}
+
+
+def sign_mismatch(category: str, amount: float) -> bool:
+    """True if `amount`'s sign contradicts what's expected for `category`."""
+    expected = EXPECTED_SIGN.get(category)
+    if expected is None:
+        return False
+    return (expected == "+") != (amount >= 0)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 # CORE HELPERS
 # ─────────────────────────────────────────────────────────────────────────────
 

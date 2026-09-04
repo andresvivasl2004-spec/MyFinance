@@ -17,8 +17,9 @@ sys.path.insert(0, str(Path(__file__).parent))
 
 from auto_parser import detect_and_parse, reparse
 from categories  import load_categories, save_categories, add_category, delete_category, reset_to_defaults
-from categorizer import find_category, load_known_merchants, save_known_merchants
+from categorizer import find_category, load_known_merchants, save_known_merchants, sign_mismatch
 from storage     import save_to_global, load_from_global, global_summary
+from self_transfer import find_transfer_match
 from processor   import process
 from anomaly     import detect, adjusted_process, plot_anomaly_overview
 from charts      import plot_spending_analysis, plot_investment_allocation
@@ -233,8 +234,16 @@ with tab_new:
                 else:
                     known = load_known_merchants()
                     st.session_state["known_snapshot"] = dict(known)
+                    transfer_candidates = all_data_raw or []
+                    src = st.session_state["source"]
                     categorized, pending = [], []
                     for row in preview_rows:
+                        # Reciprocal cross-account match wins over keywords —
+                        # it's evidence the money actually moved between your
+                        # own accounts, regardless of how the bank worded it.
+                        if find_transfer_match(row, src, transfer_candidates):
+                            categorized.append({**row, "category": "Self-transfer"})
+                            continue
                         cat = find_category(row["description"], known)
                         if cat:
                             categorized.append({**row, "category": cat})
@@ -290,11 +299,22 @@ with tab_new:
         c1, c2, c3 = st.columns([2, 1, 1])
         with c1:
             if st.button("✓  Confirm & next", use_container_width=True):
+                st.session_state["categorized"].append({**row, "category": chosen, "keyword": kw or None})
                 if kw:
                     known = load_known_merchants()
                     known[kw] = chosen
                     save_known_merchants(known)
-                st.session_state["categorized"].append({**row, "category": chosen})
+                    # Apply the newly learned keyword to the rest of THIS
+                    # batch too, instead of asking about every other
+                    # occurrence of the same merchant in the same import.
+                    remaining, still_pending = pending[idx + 1:], []
+                    for r in remaining:
+                        auto_cat = find_category(r["description"], known)
+                        if auto_cat:
+                            st.session_state["categorized"].append({**r, "category": auto_cat})
+                        else:
+                            still_pending.append(r)
+                    st.session_state["pending"] = pending[:idx + 1] + still_pending
                 st.session_state["cat_index"] += 1
                 st.rerun()
         with c2:
@@ -344,6 +364,22 @@ with tab_new:
             },
             hide_index=True, use_container_width=True, num_rows="fixed",
         )
+
+        mismatches = [
+            (row["Date"], row["Category"], row["Amount"])
+            for _, row in edited.iterrows()
+            if sign_mismatch(row["Category"], row["Amount"])
+        ]
+        if mismatches:
+            st.warning(
+                f"⚠️ {len(mismatches)} row(s) have an amount sign that doesn't match "
+                f"their category (e.g. a negative amount tagged 'Income'). Double-check "
+                f"before saving:"
+            )
+            st.dataframe(
+                pd.DataFrame(mismatches, columns=["Date", "Category", "Amount"]),
+                hide_index=True, use_container_width=True,
+            )
 
         if st.session_state["stage"] == "review":
             if st.button("💾  Save to global Excel"):
