@@ -260,15 +260,22 @@ BASE_MERCHANTS: dict[str, str] = {
     # Self-transfers (between your own accounts)
     "myinv":                 "Self-transfer",
     "myinvestor":            "Self-transfer",
-    "transfer received":     "Self-transfer",
-    # Investments
-    "index msci":            "Investments",
-    "index s&p":             "Investments",
-    "ishares":               "Investments",
-    "amundi":                "Investments",
-    "robeco":                "Investments",
-    "ae dis":                "Investments",
-    "ae acc":                "Investments",
+    # NOTE: "transfer received" was removed on purpose — it is too generic and
+    # matched real incoming income/salary deposits, not just transfers between
+    # your own accounts. Incoming transfers now require manual categorisation
+    # (or a specific learned keyword) instead of being auto-assumed to be a
+    # self-transfer.
+    # Investments.
+    # These are generic fund-name fragments, deliberately not anyone's real
+    # holdings — same reasoning as the placeholder registry in processor.py.
+    # Add the fund families that appear in your own exports here (a lowercase
+    # substring of the description is enough) so their rows land under
+    # Investments automatically.
+    "index fund":            "Investments",
+    "index etf":             "Investments",
+    "etf":                   "Investments",
+    "acc":                   "Investments",
+    "dis eur":               "Investments",
 }
 
 KNOWN_MERCHANTS_FILE = Path(__file__).resolve().parent.parent / "data" / "known_merchants.json"

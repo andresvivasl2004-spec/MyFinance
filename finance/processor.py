@@ -9,29 +9,59 @@ import numpy as np
 from collections import defaultdict, Counter
 from datetime import datetime
 
+from .investments import get_classification
+
 
 # ── Grocery merchant detection ────────────────────────────────────────────────
 GROCERY_MERCHANTS = {
     "LIDL":      ["LIDL"],
     "Mercadona": ["MERCADONA"],
     "Alcampo":   ["ALCAMPO"],
-    "Simply":    ["SIMPLY"],
+    "Simply":    ["SIMPLY", "BRAVO MURILLO"],
     "Fruteria":  ["FRUTERIA", "FRUTAS"],
     "Obrador":   ["OBRADOR"],
 }
 
 # ── Investment fund detection ─────────────────────────────────────────────────
+# ── Fund registry ─────────────────────────────────────────────────────────────
+# PLACEHOLDER LIST. These are illustrative examples, not anyone's real holdings.
+# Replace them with the fund names exactly as they appear in your own bank or
+# broker exports; nothing else in the app needs to change.
+#
+# Each entry maps one canonical fund name to (a list of keywords that may appear
+# in an export row, the provider that holds it). Several keywords can point at
+# the SAME canonical name on purpose: providers rename their export labels from
+# time to time, and if the old and new label map to two different names, one
+# position silently splits into two and each half understates its real weight.
 INVESTMENT_FUNDS = {
-    "iShares Physical Gold ETC":        (["ISHARES PHYSICAL GOLD"],           "Trade Republic"),
-    "iShares Core MSCI World (Acc)":    (["ISHARES CORE MSCI WORLD"],         "Trade Republic"),
-    "iShares Developed World":          (["ISHARES DEVELOPED WORLD"],         "MyInvestor"),
-    "AMUNDI INDEX MSCI World AE Dis":   (["AMUNDI INDEX MSCI WORLD AE DIS"],  "MyInvestor"),
-    "AMUNDI INDEX S&P 500 ESG AE Acc":  (["AMUNDI INDEX S&P 500 ESG",
-                                          "INDEX S&P 500 ESG AE ACC"],        "MyInvestor"),
-    "INDEX MSCI World AE Dis EUR":      (["INDEX MSCI WORLD AE DIS EUR"],     "MyInvestor"),
-    "ROBECO BP Global Premium EQ D":    (["ROBECO BP GLOBAL PREMIUM",
-                                          "GLOBAL PREMIUM EQ D"],             "MyInvestor"),
-    "BBVA Investment Funds":            (["BBVA"],                             "BBVA"),
+    "Global Equity ETF (Acc)":   (["GLOBAL EQUITY ETF ACC"],       "Broker One"),
+    "Physical Gold ETC":         (["PHYSICAL GOLD ETC"],           "Broker One"),
+    "Developed World Index":     (["DEVELOPED WORLD INDEX",
+                                   "DEVELOPED WRLD IDX"],          "Broker Two"),
+    # The renamed-label case: same fund, two spellings across time.
+    "World Index Fund Dis EUR":  (["WORLD INDEX FUND DIS",
+                                   "WORLD INDEX FD DIS EUR"],      "Broker Two"),
+    "Sustainable 500 Index Acc": (["SUSTAINABLE 500 INDEX",
+                                   "SUSTAIN 500 IDX ACC"],         "Broker Two"),
+    "Value Equity Fund D":       (["VALUE EQUITY FUND",
+                                   "VALUE EQ FUND D"],             "Broker Two"),
+    "Bank Managed Funds":        (["BANK MANAGED FUND"],           "Bank Three"),
+}
+
+# ── Asset class per fund ───────────────────────────────────────────────────────
+# "Equity", "Fixed income" (bonds/deposits), or "Commodities". BBVA's export
+# only ever gives a generic "Contributions to investment funds" line with no
+# fund name, so its actual holding can't be classified from the data alone
+# — it's left unclassified until the user sets it from the Investments tab.
+FUND_ASSET_CLASS = {
+    "Global Equity ETF (Acc)":   "Equity",
+    "Physical Gold ETC":         "Commodities",
+    "Developed World Index":     "Equity",
+    "World Index Fund Dis EUR":  "Equity",
+    "Sustainable 500 Index Acc": "Equity",
+    "Value Equity Fund D":       "Equity",
+    "Bank Managed Funds":        "Fixed income",
+    "Other Investment":          "Unspecified",
 }
 
 
@@ -66,12 +96,24 @@ def _detect_grocery_merchant(description: str) -> str:
     return "Other Grocery"
 
 
-def _detect_investment_fund(description: str) -> tuple[str, str]:
-    """Returns (fund_name, account_name)."""
+def _detect_investment_fund(description: str, source: str | None = None) -> tuple[str, str]:
+    """Returns (fund_name, account_name).
+
+    BBVA's export never names the specific fund (every contribution reads
+    something generic like "Investment funds - debit subscriptions:
+    Contributions to investment funds"), so the keyword match above can
+    never succeed for it. Falling back on the transaction's real source
+    lets a BBVA investment still be labelled "BBVA Investment Funds"
+    (known to be Fixed income) instead of being lumped into the catch-all
+    "Other Investment" bucket alongside genuinely unidentified funds from
+    other banks.
+    """
     desc_upper = description.upper()
     for fund_name, (keywords, account) in INVESTMENT_FUNDS.items():
         if any(kw in desc_upper for kw in keywords):
             return fund_name, account
+    if source == "BBVA":
+        return "BBVA Investment Funds", "BBVA"
     return "Other Investment", "Unknown"
 
 
@@ -134,6 +176,14 @@ def process(
     monthly_interest    = defaultdict(float)
     grocery_detail      = defaultdict(lambda: defaultdict(float))
     investments_detail  = defaultdict(lambda: defaultdict(float))
+    # Keyed by (fund_name, source) — the real account each transaction came
+    # from, NOT a hardcoded fund→bank guess. A generic/unidentified fund
+    # (e.g. "Other Investment") can legitimately come from more than one
+    # bank, so this is the only way to attribute it correctly.
+    fund_source_totals    = defaultdict(float)
+    investment_txn_count  = defaultdict(int)
+    investment_first_date: dict = {}
+    investment_last_date:  dict = {}
 
     for dt, amount, desc, cat, source in all_data:
         if cat == "Self-transfer":
@@ -147,8 +197,31 @@ def process(
         if cat == "Interest":
             monthly_interest[mk] += amount
             continue
+        if amount >= 0 and cat != "Investments":
+            continue   # skip positive amounts that aren't income/interest —
+            # except Investments: a positive amount there is a partial
+            # redemption/rebate from a fund, not spending. It still has to be
+            # netted against that fund's total below, or the money vanishes
+            # from the books entirely (it's excluded from "cash if never
+            # invested" for being Investments-category, and if it's also
+            # skipped here it never reduces account_totals either — so it
+            # never comes back as cash anywhere, understating your real
+            # balance by exactly that amount).
+
         if amount >= 0:
-            continue   # skip positive amounts that aren't income/interest
+            # cat == "Investments" and amount >= 0: a redemption/rebate.
+            # Net it against the fund's total but don't count it as money
+            # spent this month (monthly_by_cat/monthly_investments track
+            # outflows into investments, not money coming back).
+            fund_name, _ = _detect_investment_fund(desc, source)
+            key = (fund_name, source)
+            fund_source_totals[key] -= amount
+            investment_txn_count[key] += 1
+            if key not in investment_first_date or dt < investment_first_date[key]:
+                investment_first_date[key] = dt
+            if key not in investment_last_date or dt > investment_last_date[key]:
+                investment_last_date[key] = dt
+            continue
 
         abs_amt = abs(amount)
         monthly_by_cat[mk][cat] += abs_amt
@@ -159,8 +232,15 @@ def process(
             grocery_detail[mk][merchant] += abs_amt
         elif cat == "Investments":
             monthly_investments[mk] += abs_amt
-            fund_name, _ = _detect_investment_fund(desc)
+            fund_name, _ = _detect_investment_fund(desc, source)
             investments_detail[mk][fund_name] += abs_amt
+            key = (fund_name, source)
+            fund_source_totals[key] += abs_amt
+            investment_txn_count[key] += 1
+            if key not in investment_first_date or dt < investment_first_date[key]:
+                investment_first_date[key] = dt
+            if key not in investment_last_date or dt > investment_last_date[key]:
+                investment_last_date[key] = dt
         elif cat == "Dining & Food":
             monthly_dining[mk] += abs_amt
         elif cat == "Electricity":
@@ -171,6 +251,21 @@ def process(
             monthly_water[mk] += abs_amt
         elif cat == "Phone":
             monthly_phone[mk] += abs_amt
+
+    # ── Cash by bank (part 1: net flow if nothing had ever been invested) ────
+    # Unlike every total above, this needs Self-transfers INCLUDED (with
+    # their real sign) — a self-transfer is exactly what moves cash from one
+    # of your banks to another, so excluding it (as the main loop does, to
+    # avoid double-counting the grand total) would misattribute cash between
+    # banks even though the overall total stays correct. Investment
+    # transactions are excluded here too (handled in part 2 below, once
+    # account_totals — how much was actually invested from each bank — is
+    # known).
+    _bank_flow_excl_investments: dict[str, float] = defaultdict(float)
+    for dt, amount, desc, cat, source in all_data:
+        if cat == "Investments":
+            continue
+        _bank_flow_excl_investments[source] += amount
 
     # ── Month lists ───────────────────────────────────────────────────────────
     all_months_str = sorted(
@@ -188,9 +283,29 @@ def process(
     total_income      = sum(monthly_income.values())
     total_interest    = sum(monthly_interest.values())
     total_investments = sum(monthly_investments.values())
+    # total_spending excludes Investments: moving cash into a fund isn't a
+    # loss, it's converting cash into another asset of equal value.
     total_spending    = sum(cat_totals.values()) - total_investments
+    # For the same reason, investments must NOT be added back in as an
+    # "inflow" here — that would count the same money twice (once by
+    # excluding it from total_spending, once by adding it to total_inflows).
+    # Investing is net-worth-neutral: cash out, fund shares in.
     total_inflows     = total_income + total_interest
     net_worth         = total_inflows - total_spending
+
+    # ── Net worth composition: how much of it sits as cash vs. invested ──────
+    # total_investments is the cumulative amount ever moved into investment
+    # funds/ETFs (contributions only — the app doesn't track sells or market
+    # appreciation), so it doubles as "how much of your net worth currently
+    # sits in your investment accounts". Whatever's left of net_worth is cash
+    # sitting in your regular bank accounts.
+    cash_worth = net_worth - total_investments
+    if net_worth:
+        cash_pct       = cash_worth / net_worth * 100
+        invested_pct   = total_investments / net_worth * 100
+    else:
+        cash_pct       = 0.0
+        invested_pct   = 0.0
 
     # ── Per-category stats (active months only) ───────────────────────────────
     cat_monthly_avg: dict[str, float] = {}
@@ -248,26 +363,60 @@ def process(
     )
 
     # ── Investment allocation ─────────────────────────────────────────────────
-    fund_totals: dict[str, float] = defaultdict(float)
-    for mk, funds in investments_detail.items():
-        for fund, amt in funds.items():
-            fund_totals[fund] += amt
+    # One row per (fund, real source account) pair, sorted by amount desc.
+    # Using the transaction's actual Source (rather than a hardcoded
+    # fund→bank guess) means an unidentified fund that happens to have been
+    # bought from more than one bank still gets split and attributed
+    # correctly instead of being lumped under a single "Unknown" bucket.
+    _fund_source_pairs = sorted(fund_source_totals.items(), key=lambda kv: -kv[1])
 
-    fund_names   = [f for f, _ in sorted(fund_totals.items(), key=lambda x: -x[1])]
-    fund_amounts = [fund_totals[f] for f in fund_names]
+    fund_names         = [k[0] for k, _ in _fund_source_pairs]
+    fund_accounts      = [k[1] for k, _ in _fund_source_pairs]
+    # A (fund, source) position can come out negative when the selected date
+    # window contains a redemption/rebate but not the earlier contribution(s)
+    # it nets against (e.g. filtering to just the last couple of months when
+    # the fund was funded well before that and partially redeemed inside the
+    # window). There's no meaningful "money currently in this fund, counting
+    # only this window" in that case, and a negative wedge crashes the pie
+    # chart (matplotlib requires non-negative sizes). Floor at 0 — the fund
+    # just shows as having nothing allocated to it within that window, which
+    # is the closest sane answer without silently reaching outside the range
+    # the user actually selected.
+    fund_amounts       = [max(amt, 0.0) for _, amt in _fund_source_pairs]
+    fund_txn_counts    = [investment_txn_count[k] for k, _ in _fund_source_pairs]
+    fund_first_dates   = [investment_first_date[k] for k, _ in _fund_source_pairs]
+    fund_last_dates    = [investment_last_date[k] for k, _ in _fund_source_pairs]
 
-    fund_account_map = {
-        fund_name: account
-        for fund_name, (_, account) in INVESTMENT_FUNDS.items()
-    }
-    fund_account_map["Other Investment"] = "Unknown"
+    # Asset class / interest type: the user's own classification (set from
+    # the Investments tab) always wins over the hardcoded FUND_ASSET_CLASS
+    # guess.
+    fund_asset_classes  = []
+    fund_interest_types = []
+    for fund_name in fund_names:
+        default_ac = FUND_ASSET_CLASS.get(fund_name, "Unspecified")
+        ac, interest_type = get_classification(fund_name, default_asset_class=default_ac)
+        fund_asset_classes.append(ac)
+        fund_interest_types.append(interest_type)
 
-    fund_accounts  = [fund_account_map.get(f, "Unknown") for f in fund_names]
     total_invested = sum(fund_amounts)
 
     account_totals: Counter = Counter()
-    for name, amt, acc in zip(fund_names, fund_amounts, fund_accounts):
+    for acc, amt in zip(fund_accounts, fund_amounts):
         account_totals[acc] += amt
+
+    # ── Cash by bank (part 2) ──────────────────────────────────────────────────
+    # _bank_flow_excl_investments[X] is what bank X's balance would be if you
+    # had never invested any of it. Since you did, that money actually left
+    # X's cash and became the invested position tracked in account_totals[X]
+    # — subtract it to get the real remaining cash balance per bank.
+    cash_by_bank: dict[str, float] = {
+        src: _bank_flow_excl_investments.get(src, 0.0) - account_totals.get(src, 0.0)
+        for src in set(_bank_flow_excl_investments) | set(account_totals)
+    }
+
+    asset_class_totals: Counter = Counter()
+    for ac, amt in zip(fund_asset_classes, fund_amounts):
+        asset_class_totals[ac] += amt
 
     # ── Merchant totals (grocery) ─────────────────────────────────────────────
     merchant_totals: dict[str, float] = defaultdict(float)
@@ -277,18 +426,20 @@ def process(
 
     return {
         # Raw monthly dicts
-        "monthly_by_cat":       monthly_by_cat,
-        "monthly_grocery":      monthly_grocery,
-        "monthly_dining":       monthly_dining,
-        "monthly_electricity":  monthly_electricity,
-        "monthly_gas":          monthly_gas,
-        "monthly_water":        monthly_water,
-        "monthly_phone":        monthly_phone,
-        "monthly_investments":  monthly_investments,
-        "monthly_income":       monthly_income,
-        "monthly_interest":     monthly_interest,
-        "grocery_detail":       grocery_detail,
-        "investments_detail":   investments_detail,
+        # (converted to plain dicts — a defaultdict with a lambda default_factory
+        #  can't be pickled, which is required by Streamlit's @st.cache_data)
+        "monthly_by_cat":       {m: dict(cats) for m, cats in monthly_by_cat.items()},
+        "monthly_grocery":      dict(monthly_grocery),
+        "monthly_dining":       dict(monthly_dining),
+        "monthly_electricity":  dict(monthly_electricity),
+        "monthly_gas":          dict(monthly_gas),
+        "monthly_water":        dict(monthly_water),
+        "monthly_phone":        dict(monthly_phone),
+        "monthly_investments":  dict(monthly_investments),
+        "monthly_income":       dict(monthly_income),
+        "monthly_interest":     dict(monthly_interest),
+        "grocery_detail":       {m: dict(g) for m, g in grocery_detail.items()},
+        "investments_detail":   {m: dict(i) for m, i in investments_detail.items()},
         # Month lists
         "all_months_str":       all_months_str,
         "all_months_dt":        all_months_dt,
@@ -306,6 +457,10 @@ def process(
         "total_spending":       total_spending,
         "total_inflows":        total_inflows,
         "net_worth":            net_worth,
+        "cash_worth":           cash_worth,
+        "cash_by_bank":         dict(cash_by_bank),
+        "cash_pct":             cash_pct,
+        "invested_pct":         invested_pct,
         # Income stats
         "n_income_months":      n_income_months,
         "avg_income":           avg_income,
@@ -335,13 +490,230 @@ def process(
         "std_last12_phone":       _std(_filter(monthly_phone)),
         "ci_last12_phone":        _ci(_filter(monthly_phone)),
         # Investment allocation
-        "fund_names":       fund_names,
-        "fund_amounts":     fund_amounts,
-        "fund_accounts":    fund_accounts,
-        "total_invested":   total_invested,
-        "account_totals":   dict(account_totals),
-        "merchant_totals":  dict(merchant_totals),
+        "fund_names":          fund_names,
+        "fund_amounts":        fund_amounts,
+        "fund_accounts":       fund_accounts,
+        "fund_asset_classes":  fund_asset_classes,
+        "fund_interest_types": fund_interest_types,
+        "fund_txn_counts":     fund_txn_counts,
+        "fund_first_dates":    fund_first_dates,
+        "fund_last_dates":     fund_last_dates,
+        "total_invested":      total_invested,
+        "account_totals":      dict(account_totals),
+        "asset_class_totals":  dict(asset_class_totals),
+        "merchant_totals":     dict(merchant_totals),
     }
+
+
+# ── Net worth over time ────────────────────────────────────────────────────────
+
+def _iter_fund_snapshots(rows_sorted: list[tuple], months: list[str]):
+    """
+    Shared engine for every "running balance over time" view (net worth,
+    allocation-by-asset-class). Yields (month, fund_source_totals) for each
+    month in `months`, where fund_source_totals is the cumulative,
+    redemption-netted, floored-at-0 {(fund_name, source): amount} snapshot as
+    of the END of that month.
+
+    This is the SAME formula process() uses for a single period (see its
+    "amount >= 0 and cat != Investments" branch for the reasoning on
+    redemption netting, and its fund_amounts comment for the floor) — kept
+    in exactly one place so every timeline view agrees with process() and
+    with each other. `rows_sorted` must already be sorted by date; `months`
+    must be the sorted list of every "YYYY-MM" that appears in it (or a
+    subset of the tail of it — each call only ever advances forward).
+
+    Parameters
+    ----------
+    rows_sorted : all_data, sorted by date ascending.
+    months      : Sorted "YYYY-MM" checkpoints to snapshot at.
+
+    Yields
+    ------
+    (month: str, fund_source_totals: dict[(str, str), float])
+    """
+    fund_source_totals: dict = defaultdict(float)
+    idx, n = 0, len(rows_sorted)
+
+    for mk in months:
+        while idx < n and rows_sorted[idx][0].strftime("%Y-%m") <= mk:
+            dt, amount, desc, cat, source = rows_sorted[idx]
+            if cat == "Investments":
+                fund_name, _ = _detect_investment_fund(desc, source)
+                key = (fund_name, source)
+                if amount >= 0:
+                    fund_source_totals[key] -= amount   # redemption/rebate
+                else:
+                    fund_source_totals[key] += abs(amount)
+            idx += 1
+
+        yield mk, {k: max(v, 0.0) for k, v in fund_source_totals.items()}
+
+
+def compute_net_worth_timeline(all_data: list[tuple]) -> list[dict]:
+    """
+    Net worth, split into cash vs. invested, as of the END of every month
+    that has at least one transaction.
+
+    This is a RUNNING BALANCE, not a period flow — each month's snapshot is
+    built from every transaction from the very beginning up through that
+    month, always. That's deliberate and different from process(): a
+    start_month cutoff (like the sidebar's Period filter uses) would lop off
+    real history and make the series start from a wrong, non-zero baseline,
+    and — as we learned from the Investments pie chart crash — a window that
+    contains a redemption without the contribution it nets against can drive
+    a fund's tracked total negative. Neither problem can happen here, because
+    every snapshot's "window" always starts at the true beginning.
+
+    Uses the same cash-per-bank and fund-redemption-netting formulas as
+    process() (see there for the reasoning), just computed incrementally in
+    one pass instead of one process() call per month, so the two stay in
+    agreement and this stays cheap even over years of history.
+
+    Parameters
+    ----------
+    all_data : Output of loader/storage — list of
+               (datetime, float, str, str, str) tuples.
+
+    Returns
+    -------
+    List of dicts, oldest month first:
+        {"month": "YYYY-MM", "cash": float, "invested": float, "net_worth": float}
+    """
+    if not all_data:
+        return []
+
+    rows = sorted(all_data, key=lambda r: r[0])
+    months = sorted({dt.strftime("%Y-%m") for dt, *_ in rows})
+
+    bank_flow_excl_investments: dict = defaultdict(float)
+    idx, n = 0, len(rows)
+
+    timeline: list[dict] = []
+    for mk, fund_totals in _iter_fund_snapshots(rows, months):
+        # Advance the bank-flow accumulation to the same month boundary.
+        # Self-transfers count here (they move cash between your own
+        # accounts, with their real sign) but Investments-category rows
+        # never do — see process()'s "_bank_flow_excl_investments" comment.
+        while idx < n and rows[idx][0].strftime("%Y-%m") <= mk:
+            dt, amount, desc, cat, source = rows[idx]
+            if cat != "Investments":
+                bank_flow_excl_investments[source] += amount
+            idx += 1
+
+        invested_by_source: dict = defaultdict(float)
+        total_invested = 0.0
+        for (_, source), amt in fund_totals.items():
+            invested_by_source[source] += amt
+            total_invested += amt
+
+        total_cash = sum(bank_flow_excl_investments.values()) - sum(invested_by_source.values())
+
+        timeline.append({
+            "month":     mk,
+            "cash":      total_cash,
+            "invested":  total_invested,
+            "net_worth": total_cash + total_invested,
+        })
+
+    return timeline
+
+
+def compute_allocation_timeline(all_data: list[tuple]) -> list[dict]:
+    """
+    Asset-class mix over time: how much of your invested money sits in each
+    asset class (Equity, Fixed income, Commodities, Unspecified) as of the
+    END of every month that has at least one transaction.
+
+    Same running-balance semantics as compute_net_worth_timeline() — every
+    snapshot uses the complete history from the beginning, never a narrower
+    window — for the same reasons (see that function's docstring). Respects
+    the user's manual per-fund classification overrides the same way
+    process() does (get_classification() wins over the FUND_ASSET_CLASS
+    guess), so this always agrees with what the Investments tab shows for
+    "now".
+
+    Parameters
+    ----------
+    all_data : Output of loader/storage — list of
+               (datetime, float, str, str, str) tuples.
+
+    Returns
+    -------
+    List of dicts, oldest month first:
+        {"month": "YYYY-MM", "by_class": {"Equity": float, ...}, "total": float}
+    """
+    if not all_data:
+        return []
+
+    rows = sorted(all_data, key=lambda r: r[0])
+    months = sorted({dt.strftime("%Y-%m") for dt, *_ in rows})
+
+    # Fund → asset class is a stable lookup independent of the running
+    # totals, so it only needs computing once per fund, not once per month.
+    _class_cache: dict[str, str] = {}
+
+    def _asset_class(fund_name: str) -> str:
+        if fund_name not in _class_cache:
+            default_ac = FUND_ASSET_CLASS.get(fund_name, "Unspecified")
+            ac, _ = get_classification(fund_name, default_asset_class=default_ac)
+            _class_cache[fund_name] = ac
+        return _class_cache[fund_name]
+
+    timeline: list[dict] = []
+    for mk, fund_totals in _iter_fund_snapshots(rows, months):
+        by_class: dict = defaultdict(float)
+        for (fund_name, _source), amt in fund_totals.items():
+            if amt <= 0:
+                continue
+            by_class[_asset_class(fund_name)] += amt
+
+        timeline.append({
+            "month":    mk,
+            "by_class": dict(by_class),
+            "total":    sum(by_class.values()),
+        })
+
+    return timeline
+
+
+# ── Calendar view ────────────────────────────────────────────────────────────
+
+def daily_summary(all_data: list[tuple]) -> dict[str, dict]:
+    """
+    Group every transaction by calendar day, for the Calendar tab.
+
+    Unlike process(), Investments rows are included here with their real
+    sign, so a day's "total" reflects literally everything that happened to
+    your money that day, not just spending. Self-transfer rows are the one
+    exception — excluded entirely (not just netted to zero): a transfer
+    between two of your own accounts often posts as two separate legs on two
+    different days (the bank takes a day or more to settle it), so showing
+    each leg's raw amount on its own day would make an ordinary transfer
+    look like a big, unexplained outflow or inflow on days nothing was
+    actually spent or earned. Since it's not new money and not spending, it
+    doesn't belong in a day-by-day view at all.
+
+    Returns
+    -------
+    {"YYYY-MM-DD": {"total": float, "transactions": [
+        {"date": datetime, "amount": float, "description": str,
+         "category": str, "source": str}, ...
+    ]}}
+    """
+    days: dict[str, dict] = {}
+    for dt, amount, desc, cat, source in all_data:
+        if cat == "Self-transfer":
+            continue
+        key = dt.strftime("%Y-%m-%d")
+        if key not in days:
+            days[key] = {"total": 0.0, "transactions": []}
+        days[key]["total"] += amount
+        days[key]["transactions"].append({
+            "date": dt, "amount": amount, "description": desc,
+            "category": cat, "source": source,
+        })
+    return days
 
 
 def print_summary(d: dict, accounts_label: str = "", period_label: str = "") -> None:
@@ -392,6 +764,8 @@ def print_summary(d: dict, accounts_label: str = "", period_label: str = "") -> 
     print(f"  {'Spending':<20} €{-d['total_spending']:>12,.2f}")
     print(f"  {'─'*20}   {'─'*12}")
     print(f"  {'NET WORTH':<20} €{d['net_worth']:>12,.2f}")
+    print(f"    {'· Cash':<18} €{d['cash_worth']:>12,.2f}   ({d['cash_pct']:.1f}%)")
+    print(f"    {'· Invested':<18} €{d['total_investments']:>12,.2f}   ({d['invested_pct']:.1f}%)")
 
     print(f"\n  ── TOTAL MONTHLY SPENDING")
     print(f"  {'Avg/Month':<22} €{d['total_monthly_avg']:>9,.2f}   "

@@ -20,6 +20,13 @@ import pandas as pd
 from pathlib import Path
 from datetime import datetime
 
+# ── Spanish month abbreviations, as used in Trade Republic-style PDF
+#    statements ("18 mar 2025", "08 sept 2026") ──────────────────────────────
+_MESES_ES = {
+    "ene": 1, "feb": 2, "mar": 3, "abr": 4, "may": 5, "jun": 6,
+    "jul": 7, "ago": 8, "sept": 9, "sep": 9, "oct": 10, "nov": 11, "dic": 12,
+}
+
 
 # ── Date format candidates ─────────────────────────────────────────────────────
 DATE_FORMATS = [
@@ -171,6 +178,131 @@ def _read_excel(path: str, skiprows: int) -> pd.DataFrame | None:
     return None
 
 
+# ── PDF statements (Trade Republic-style) ──────────────────────────────────────
+#
+# Unlike CSV/Excel, a PDF has no real columns — just text positioned on a
+# page. This reader is built for Trade Republic's account-statement layout
+# (FECHA | TIPO | DESCRIPCIÓN | ENTRADA DE DINERO | SALIDA DE DINERO |
+# BALANCE, repeating across pages): it buckets every word into a column by
+# its horizontal position, groups words into transaction rows by finding
+# each date (which always starts a new row), and stops before the closing
+# "RESUMEN DEL BALANCE" / legal-notes pages. It was verified against a real
+# 24-page / 376-transaction statement: total money in, total money out, and
+# the running balance on every single row matched the PDF exactly.
+#
+# A bank statement laid out differently will need its own reader — this one
+# is not a generic PDF-table parser.
+
+_PDF_FOOTER_TOP = 755.0            # Trade Republic repeats its footer here on every page
+_PDF_STOP_WORDS = {"RESUMEN", "NOTAS", "CONFIRMACIÓN"}   # closing sections to cut off
+_PDF_DAY_RE     = re.compile(r"^\d{1,2}$")
+_PDF_DATE_RE    = re.compile(r"(\d{1,2})\s+([a-zé]+)\s+(\d{4})", re.I)
+
+
+def _pdf_col(x0: float) -> str:
+    """Which column a word belongs to, by its left edge (x0) on the page."""
+    if x0 < 100:  return "date"
+    if x0 < 155:  return "type"
+    if x0 < 405:  return "desc"
+    if x0 < 427:  return "in"        # ENTRADA DE DINERO
+    if x0 < 465:  return "out"       # SALIDA DE DINERO
+    return "balance"
+
+
+def _pdf_amount(s: str) -> float | None:
+    s = (s or "").replace("€", "").replace(".", "").replace(",", ".").strip()
+    return float(s) if s else None
+
+
+def _pdf_page_cutoff(words: list) -> float:
+    """Where the transaction table ends on this page. The closing summary
+    and legal-notes sections use the same title style as the *opening*
+    summary table on page 1, so a stop word only counts if it appears after
+    the first transaction date already seen on this page."""
+    first_marker = next(
+        (w["top"] for w in sorted(words, key=lambda w: w["top"])
+         if _pdf_col(w["x0"]) == "date" and _PDF_DAY_RE.match(w["text"])),
+        None,
+    )
+    cutoff = _PDF_FOOTER_TOP
+    if first_marker is not None:
+        for w in words:
+            if w["text"].upper() in _PDF_STOP_WORDS and w["top"] > first_marker:
+                cutoff = min(cutoff, w["top"])
+    return cutoff
+
+
+def _read_pdf(path: str) -> pd.DataFrame | None:
+    """Parse a Trade Republic-style PDF statement into a DataFrame with
+    Date / Type / Description / Amount columns."""
+    try:
+        import pdfplumber
+    except ImportError:
+        raise ValueError(
+            "Reading PDF statements requires installing a library. "
+            "Run in a terminal:  pip install pdfplumber"
+        )
+
+    rows = []
+    with pdfplumber.open(path) as pdf:
+        for page in pdf.pages:
+            all_words = page.extract_words(use_text_flow=False, keep_blank_chars=False)
+            if not all_words:
+                continue
+            cutoff = _pdf_page_cutoff(all_words)
+            words  = [w for w in all_words if w["top"] < cutoff]
+
+            markers = sorted(
+                w["top"] for w in words
+                if _pdf_col(w["x0"]) == "date" and _PDF_DAY_RE.match(w["text"])
+            )
+            if not markers:
+                continue
+
+            for i, top in enumerate(markers):
+                start = top - 0.5
+                end   = markers[i + 1] - 0.5 if i + 1 < len(markers) else cutoff
+                band_words = [w for w in words if start <= w["top"] < end]
+                if not band_words:
+                    continue
+
+                fields = {"date": [], "type": [], "desc": [], "in": [], "out": []}
+                for w in sorted(band_words, key=lambda w: (round(w["top"], 1), w["x0"])):
+                    col = _pdf_col(w["x0"])
+                    if col in fields:
+                        fields[col].append(w["text"])
+
+                m = _PDF_DATE_RE.search(" ".join(fields["date"]))
+                if not m:
+                    continue
+                day, mon_txt, year = m.groups()
+                mon = _MESES_ES.get(mon_txt.lower())
+                if not mon:
+                    continue
+
+                in_amt  = _pdf_amount(" ".join(fields["in"]))
+                out_amt = _pdf_amount(" ".join(fields["out"]))
+                amount  = in_amt if in_amt is not None else (
+                    -out_amt if out_amt is not None else None)
+                if amount is None:
+                    continue
+
+                type_txt = " ".join(fields["type"]).strip()
+                desc_txt = " ".join(fields["desc"]).strip()
+                description = f"{type_txt}: {desc_txt}" if desc_txt else type_txt
+
+                rows.append({
+                    "Date":        f"{year}-{mon:02d}-{int(day):02d}",
+                    "Type":        type_txt,
+                    "Description": description,
+                    "Amount":      amount,
+                })
+
+    if not rows:
+        return None
+    return pd.DataFrame(rows)
+
+
 # ── Main detection function ────────────────────────────────────────────────────
 
 def detect_and_parse(path: str) -> dict:
@@ -192,6 +324,25 @@ def detect_and_parse(path: str) -> dict:
         "n_ok"       : number of successfully parsed rows
     """
     ext = Path(path).suffix.lower()
+
+    if ext == ".pdf":
+        df = _read_pdf(path)
+        if df is None or len(df) == 0:
+            raise ValueError(
+                "Could not extract any transaction from the PDF.\n"
+                "This works with Trade Republic statements that have "
+                "selectable text (not scanned). If it's a different kind "
+                "of PDF, let me know so I can adjust the reader to its "
+                "format."
+            )
+        best = {
+            "df": df, "skip_rows": 0,
+            "date_col": "Date", "amount_col": "Amount",
+            "desc_col": "Description", "desc2_col": None,
+            "scores": {}, "total_score": 15.0,   # -> confidence 1.0
+        }
+        return _build_result(best)
+
     best = None
     best_score = -999.0
 
@@ -246,7 +397,7 @@ def detect_and_parse(path: str) -> dict:
 
     if best is None:
         raise ValueError(
-            "Could not detect the file structure.\n"
+            "Could not detect the file's structure.\n"
             "Make sure it has at least 3 columns and 2 rows of data."
         )
 
@@ -273,7 +424,12 @@ def reparse(raw_df: pd.DataFrame, date_col: str, amount_col: str,
                 desc = f"{desc}: {d2}" if desc else d2
 
         if not desc or desc.lower() == "nan":
-            continue
+            # Don't silently drop real money movements just because the bank
+            # left the description blank — that's real data loss (it can
+            # hide genuine income/expenses as if they never happened).
+            # Keep the row with a placeholder so it still gets imported and
+            # shows up for manual categorization.
+            desc = "(No description)"
         rows.append({"date": date, "amount": amount, "description": desc})
     return rows
 

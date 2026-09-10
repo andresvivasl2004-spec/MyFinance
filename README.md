@@ -16,15 +16,29 @@ outlier-month detection.
   description) are scored and picked automatically.
 - **Learning categoriser** — known merchants are categorised instantly;
   unknown ones are asked about once and remembered from then on.
-- **Self-transfer detection** — matches reciprocal transactions between your
-  own accounts (same amount, opposite sign, close date) so internal
-  transfers never get miscounted as spending or income.
+- **Self-transfer handling** — transfers between your own accounts are
+  recognised and kept out of spending and income entirely. They are also
+  excluded from the day-by-day calendar, because the two legs of one transfer
+  often settle on different days and would otherwise look like a large
+  unexplained outflow followed by an inflow.
 - **Monthly analytics** — totals, per-category averages, standard deviation,
   and 95% confidence intervals, plus investment allocation by fund and
   account.
 - **Anomaly detection** — flags unusually high/low spending months using the
   IQR (box-plot) method, and shows what your average looks like with those
   months excluded or redistributed.
+- **Net worth over time** — cash and invested tracked month by month across
+  every account, so you can see the split and how it got there.
+- **Investment breakdown** — allocation by fund, by account and by asset
+  class, plus how that mix has drifted over time. Asset classes are
+  auto-detected and can be overridden per fund from the UI.
+- **Interactive charts** — the time-series and spending charts are Vega-Lite,
+  drawn in your browser: hover any month for exact figures, click a legend
+  entry to isolate a series, drag to zoom.
+- **Spending calendar** — a month grid showing the net movement of every day,
+  with a click-through to that day's transactions.
+- **Duplicate detection** — flags transactions that look like the same entry
+  imported twice, and remembers the ones you dismiss.
 - **Editable category list** — add, remove, or reset spending categories
   from the UI.
 
@@ -38,22 +52,33 @@ outlier-month detection.
 │   ├── auto_parser.py       # Detects file structure of any bank export
 │   ├── categorizer.py       # Interactive/auto transaction categoriser
 │   ├── categories.py        # Persistent category list (data/categories.json)
-│   ├── self_transfer.py     # Reciprocal cross-account transfer detection
+│   ├── self_transfer.py     # Reciprocal cross-account transfer matching
 │   ├── storage.py           # Global Excel file: append, dedupe, load
 │   ├── processor.py         # Aggregates transactions into monthly stats
+│   ├── investments.py       # Per-fund asset-class overrides
+│   ├── duplicates.py        # Dismissed duplicate bookkeeping
 │   ├── anomaly.py           # IQR-based anomalous month detection
-│   ├── charts.py            # Matplotlib figures
+│   ├── charts.py            # Matplotlib figures (static, used by the notebook)
+│   ├── interactive.py       # Vega-Lite charts (interactive, used by the app)
 │   └── style.py             # Dark theme / colour palette
 ├── scripts/
 │   └── import_excel.py      # CLI: import an already-categorised Excel file
 └── data/
-    ├── categories.json      # Editable category list
-    └── known_merchants.json # Learned merchant → category mappings
+    ├── categories.json               # Editable category list
+    └── known_merchants.example.json  # Empty template; the real one is ignored
 ```
 
-Your actual transaction data lives in `global_spending.xlsx` at the project
-root, generated the first time you save a categorised import. It's excluded
-from version control via `.gitignore` — nobody but you sees your spending.
+### Your data stays yours
+
+Your transactions live in `global_spending.xlsx` at the project root, created
+the first time you save a categorised import. That file — along with every
+spreadsheet, CSV and PDF, your learned merchant map, your dismissed-duplicate
+list and your fund classifications — is excluded by `.gitignore`. Nothing in
+this repository contains real transactions, balances or holdings.
+
+The fund registry in `finance/processor.py` is a **placeholder list of
+example funds**, not anyone's portfolio. Replace those entries with the fund
+names as they appear in your own exports; nothing else needs to change.
 
 ## Setup
 
@@ -65,11 +90,15 @@ streamlit run app.py
 Then, in the app:
 1. **Add New Month** — upload a bank export; confirm the auto-detected
    columns; categorise any unrecognised transactions; save.
-2. **Expense Analysis** — view monthly totals, category breakdowns, and
-   charts for any date range.
-3. **Anomalies** — see which months were unusually high/low spending, and
-   what your "normal" average looks like once they're excluded.
-4. **Categories** — add, remove, or reset the category list.
+2. **Expense Analysis** — monthly totals, category breakdowns and six
+   interactive charts for any date range.
+3. **Investments** — allocation by fund, account and asset class, and how the
+   mix has changed over time.
+4. **Net Worth** — cash vs invested, month by month, across your whole history.
+5. **Calendar** — a month grid of daily net movement, click any day for detail.
+6. **Anomalies** — which months were unusually high or low, what your average
+   looks like once they're excluded, and possible duplicate transactions.
+7. **Categories** — add, remove, or reset the category list.
 
 ## Notebook workflow (alternative to the app)
 

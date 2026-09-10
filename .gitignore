@@ -1,4 +1,22 @@
 __pycache__/
 *.pyc
 *:Zone.Identifier
-global_spending.xlsx
+
+# ── Personal financial data — never commit ───────────────────────────────────
+# Anything holding real transactions, balances, holdings or merchant names.
+# The app recreates all of these on first run.
+# (Note: a '#' only starts a comment at the START of a line in .gitignore —
+#  a trailing one becomes part of the pattern and silently matches nothing.)
+*.xlsx
+*.xls
+*.csv
+*.pdf
+
+# learned merchant -> category map
+data/known_merchants.json
+
+# transaction keys you marked "not a duplicate"
+data/dismissed_duplicates.json
+
+# your per-fund asset-class overrides
+data/investment_classification.json

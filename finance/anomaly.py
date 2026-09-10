@@ -12,7 +12,7 @@ picture of the underlying budget run-rate.
 
 Usage (from notebook)
 ---------------------
-    from anomaly import detect, print_report, adjusted_process
+    from finance.anomaly import detect, print_report, adjusted_process
 
     anomalies = detect(d)
     print_report(d, anomalies)
@@ -29,6 +29,18 @@ from datetime import datetime
 
 from .style import DARK_BG, PANEL_BG, GRID_COL, TEXT_COL, ACCENT3, ACCENT5, CAT_COLORS
 from . import processor as proc
+
+
+def _euro_fmt(x, _pos=None):
+    """Axis tick formatter — a plain module-level function (not a lambda) so
+    the Figure that references it stays picklable for Streamlit's cache."""
+    return f"€{x:,.0f}"
+
+
+def _month_tick_interval(n_months: int) -> int:
+    """How many months to skip between x-axis tick labels — see charts.py's
+    copy of this function for why a bare MonthLocator() gets expensive."""
+    return max(1, n_months // 18)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -312,9 +324,9 @@ def plot_anomaly_overview(d: dict, anomalies: dict) -> plt.Figure:
     ax.set_title("Monthly Spending — Anomalous Months Highlighted",
                  fontweight="bold", pad=12, color=TEXT_COL, fontsize=13)
     ax.set_ylabel("Total Spending (€)", color=TEXT_COL)
-    ax.yaxis.set_major_formatter(plt.FuncFormatter(lambda x, _: f"€{x:,.0f}"))
+    ax.yaxis.set_major_formatter(plt.FuncFormatter(_euro_fmt))
     ax.xaxis.set_major_formatter(mdates.DateFormatter("%b\n%Y"))
-    ax.xaxis.set_major_locator(mdates.MonthLocator())
+    ax.xaxis.set_major_locator(mdates.MonthLocator(interval=_month_tick_interval(len(all_months_dt))))
     ax.legend(fontsize=8.5, loc="upper left")
     ax.grid(True, axis="y", alpha=0.4)
 

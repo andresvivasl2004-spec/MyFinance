@@ -8,7 +8,7 @@ Duplicate detection ensures running the same month twice never creates double en
 Typical notebook workflow
 -------------------------
     # Step 1 – categorise the raw bank file (categorizer.py)
-    out_csv = categorize_csv("may.xlsx", bank="bbva")
+    out_csv = categorize_csv("mayo.xlsx", bank="bbva")
 
     # Step 2 – review in the notebook
     df = review(out_csv)
@@ -34,6 +34,45 @@ COLUMNS     = ["Date", "Amount", "Description", "Category", "Source"]
 
 # Deduplication key: these columns together must be unique
 DEDUP_COLS  = ["Date", "Amount", "Description", "Source"]
+
+
+def _dedup_keys(df: pd.DataFrame) -> list[tuple]:
+    """
+    Build the (Date, Amount, Description, Source) key used to spot duplicates.
+
+    Reading global_spending.xlsx back with pandas doesn't reliably give plain
+    "YYYY-MM-DD" strings for the Date column: once a cell has ever been
+    written as a real Excel date (which openpyxl/pandas do for a datetime64
+    column), pandas parses it back as a Timestamp and str()-ing it produces
+    "YYYY-MM-DD 00:00:00" — one row from a freshly-parsed bank file ("Date":
+    "2022-03-06") would then never match the same row already sitting in the
+    global file ("2022-03-06 00:00:00"), so duplicate detection silently
+    failed for the entire existing file. Parsing with pd.to_datetime and
+    reformatting explicitly makes both sides land on the same string
+    regardless of which shape they arrived in.
+
+    Description is also lower-cased and stripped, since the same transaction
+    re-parsed from a different export format (CSV vs PDF, etc.) can come back
+    with different casing/whitespace even though it's the same real-world
+    movement.
+
+    NOTE: this used to call pd.to_datetime(df["Date"]).dt.strftime(...) to
+    normalise both shapes. That's broken for a column that mixes the two
+    shapes ("2022-03-06 00:00:00" AND "2022-03-06" in the same Series, which
+    is exactly what global_spending.xlsx contains once old rows and freshly
+    appended rows sit side by side): pandas' vectorised datetime parser
+    infers ONE format from the column and silently turns every value that
+    doesn't match it into NaT, rather than parsing each value on its own —
+    so half the existing keys came out as NaT and could never match anything,
+    letting duplicates back in. Both shapes always start with "YYYY-MM-DD"
+    though, so plain string slicing sidesteps the whole format-inference
+    problem instead of relying on a datetime parser to guess consistently.
+    """
+    date = df["Date"].astype(str).str.strip().str[:10]
+    amount = df["Amount"].astype(float).round(2)
+    desc = df["Description"].astype(str).str.strip().str.lower()
+    source = df["Source"].astype(str).str.strip()
+    return list(zip(date, amount, desc, source))
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -99,17 +138,9 @@ def save_to_global(
 
     # Deduplicate: keep only rows not already in the global file
     if len(existing_df) > 0:
-        existing_keys = set(
-            existing_df[DEDUP_COLS].apply(
-                lambda r: (str(r["Date"]), float(r["Amount"]), str(r["Description"]), str(r["Source"])),
-                axis=1,
-            )
-        )
-        mask = new_df.apply(
-            lambda r: (str(r["Date"]), float(r["Amount"]), str(r["Description"]), str(r["Source"]))
-            not in existing_keys,
-            axis=1,
-        )
+        existing_keys = set(_dedup_keys(existing_df))
+        new_keys = _dedup_keys(new_df)
+        mask = [k not in existing_keys for k in new_keys]
         rows_to_add = new_df[mask]
     else:
         rows_to_add = new_df
@@ -224,6 +255,63 @@ def load_from_global(global_file: str = GLOBAL_FILE) -> list[tuple]:
         newest = rows[0][0].strftime("%Y-%m")
         print(f"  📅 Period: {oldest}  →  {newest}")
     return rows
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# DUPLICATE REVIEW
+# ─────────────────────────────────────────────────────────────────────────────
+
+def group_key(row: tuple) -> tuple:
+    """
+    The (Date, Amount, Description, Source) identity used to group and
+    dismiss possible-duplicate transactions — same normalisation as
+    _dedup_keys, applied to a single (date, amount, description, category,
+    source) tuple as returned by load_from_global().
+    """
+    dt, amount, desc, _cat, source = row
+    return (
+        dt.strftime("%Y-%m-%d"),
+        round(float(amount), 2),
+        str(desc).strip().lower(),
+        str(source).strip(),
+    )
+
+
+def find_duplicate_groups(
+    all_data: list[tuple],
+    dismissed: set[tuple] | None = None,
+) -> list[list[tuple]]:
+    """
+    Group already-saved transactions that share the same (Date, Amount,
+    Description, Source) key — the same key save_to_global() uses to reject
+    new rows. Anything with more than one member here is either a genuine
+    repeated transaction (e.g. two identical bus fares the same day) or a
+    leftover from a re-import that slipped past duplicate detection.
+
+    Parameters
+    ----------
+    all_data  : the (date, amount, description, category, source) tuples as
+                returned by load_from_global()/processor's data pipeline.
+    dismissed : group keys (see group_key()) the user has already reviewed
+                and confirmed are genuine, not accidental duplicates — pass
+                duplicates.load_dismissed() to hide those from the result.
+
+    Returns
+    -------
+    A list of groups (each a list of the original tuples, ≥2 items), sorted
+    newest-first by date. Only real, non-dismissed duplicates are returned —
+    nothing is deleted or modified here, this is read-only for the user to
+    review (dismissing a group only hides it from this list; it doesn't
+    touch the underlying rows).
+    """
+    groups: dict[tuple, list[tuple]] = {}
+    for row in all_data:
+        groups.setdefault(group_key(row), []).append(row)
+
+    dismissed = dismissed or set()
+    dupes = [rows for key, rows in groups.items() if len(rows) > 1 and key not in dismissed]
+    dupes.sort(key=lambda rows: rows[0][0], reverse=True)
+    return dupes
 
 
 # ─────────────────────────────────────────────────────────────────────────────

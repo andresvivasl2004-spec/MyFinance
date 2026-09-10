@@ -1,7 +1,7 @@
 """
 categories.py — Persistent, user-editable category list.
 
-Categories are stored in data/categories.json at the project root.
+Categories are stored in categories.json next to this file.
 If the file doesn't exist, the default list is used and written on first save.
 """
 
@@ -35,12 +35,22 @@ DEFAULT_CATEGORIES = [
 ]
 
 
+def _sorted_display_order(cats: list[str]) -> list[str]:
+    """Alphabetical (case-insensitive), with 'Other' always pinned last."""
+    others = [c for c in cats if c == "Other"]
+    rest   = sorted((c for c in cats if c != "Other"), key=str.casefold)
+    return rest + others
+
+
 def load_categories() -> list[str]:
-    """Return the current category list (from file, or defaults)."""
+    """Return the current category list (from file, or defaults),
+    alphabetically sorted with 'Other' always last."""
     if CATEGORIES_FILE.exists():
         with open(CATEGORIES_FILE, encoding="utf-8") as f:
-            return json.load(f)
-    return DEFAULT_CATEGORIES.copy()
+            cats = json.load(f)
+    else:
+        cats = DEFAULT_CATEGORIES.copy()
+    return _sorted_display_order(cats)
 
 
 def save_categories(cats: list[str]) -> None:

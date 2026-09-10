@@ -44,18 +44,36 @@ ACCOUNT_COLORS = {
     "Unknown":        "#8b949e",
 }
 
+# ── Asset class colours ─────────────────────────────────────────────────────────
+ASSET_CLASS_COLORS = {
+    "Equity":       "#58a6ff",
+    "Fixed income": "#3fb950",
+    "Commodities":  "#e3b341",
+    "Unspecified":  "#8b949e",
+}
+
+# A fund donut can have any two slices land next to each other depending on
+# that period's amounts (they're sorted by size, not by a fixed position), so
+# this needs colors that stay distinguishable in any pairing — not just
+# adjacent ones. The previous palette was six near-identical greens plus
+# three near-identical blues, which made most funds impossible to tell apart
+# at a glance (worse still for colorblind readers). These 8 hues are the
+# dataviz skill's validated dark-mode categorical set, assigned in its fixed
+# order — confirmed via scripts/validate_palette.js against this app's own
+# panel background (#161b22): every adjacent pair clears the colorblind and
+# normal-vision separation floors. (Full all-pairs separation isn't
+# achievable past 3 categorical hues on any palette — see the skill's
+# palette.md — so identity still leans on the legend's direct fund-name +
+# amount labels, never on hue alone, exactly as the skill recommends.)
 FUND_COLORS = {
-    "iShares Physical Gold ETC":        "#58a6ff",
-    "iShares Core MSCI World (Acc)":    "#1f6feb",
-    "iShares Developed World":          "#3fb950",
-    "AMUNDI INDEX MSCI World AE Dis":   "#2ea043",
-    "AMUNDI INDEX S&P 500 ESG AE Acc":  "#26a641",
-    "INDEX S&P 500 ESG AE Acc EUR":     "#1a7f37",
-    "INDEX MSCI World AE Dis EUR":      "#116329",
-    "ROBECO BP Global Premium EQ D":    "#56d364",
-    "GLOBAL PREMIUM EQ D Acc EUR":      "#6bc8f5",
-    "BBVA Investment Funds":            "#ffa657",
-    "Other Investment":                 "#8b949e",
+    "Physical Gold ETC":         "#3987e5",   # blue
+    "Global Equity ETF (Acc)":   "#d95926",   # orange
+    "Developed World Index":     "#199e70",   # aqua
+    "World Index Fund Dis EUR":  "#c98500",   # yellow
+    "Sustainable 500 Index Acc": "#d55181",   # magenta
+    "Value Equity Fund D":       "#008300",   # green
+    "Bank Managed Funds":        "#9085e9",   # violet
+    "Other Investment":          "#e66767",   # red
 }
 
 
