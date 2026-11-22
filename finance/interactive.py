@@ -26,7 +26,7 @@ from datetime import date
 import altair as alt
 import pandas as pd
 
-from style import (
+from .style import (
     DARK_BG, PANEL_BG, GRID_COL, TEXT_COL,
     ACCENT3, ACCENT5, CAT_COLORS, cat_color, ASSET_CLASS_COLORS,
     ACCOUNT_COLORS, FUND_COLORS,

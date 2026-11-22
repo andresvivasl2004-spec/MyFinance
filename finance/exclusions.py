@@ -25,7 +25,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-EXCLUSIONS_FILE = Path(__file__).parent / "excluded_months.json"
+EXCLUSIONS_FILE = Path(__file__).resolve().parent.parent / "data" / "excluded_months.json"
 
 
 def load_exclusions() -> set[str]:

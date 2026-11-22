@@ -4,7 +4,7 @@ and confirmed are genuine repeated transactions (two identical bus fares the
 same day, a Bizum sent three times, etc.), so they stop being flagged every
 time you open the Anomalies tab.
 
-Stored in dismissed_duplicates.json next to this file, keyed by the same
+Stored in data/dismissed_duplicates.json, keyed by the same
 (date, amount, description, source) tuple storage.find_duplicate_groups()
 and storage.group_key() use. Mirrors the investments.py override pattern
 already used elsewhere in the app.
@@ -13,7 +13,7 @@ already used elsewhere in the app.
 import json
 from pathlib import Path
 
-DISMISSED_FILE = Path(__file__).parent / "dismissed_duplicates.json"
+DISMISSED_FILE = Path(__file__).resolve().parent.parent / "data" / "dismissed_duplicates.json"
 
 
 def load_dismissed() -> set[tuple]:

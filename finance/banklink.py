@@ -49,11 +49,11 @@ BASE = "https://bankaccountdata.gocardless.com/api/v2"
 #     {"secret_id": "...", "secret_key": "..."}
 # Environment variables GOCARDLESS_SECRET_ID / GOCARDLESS_SECRET_KEY take
 # precedence if set, which is the tidier option on a shared machine.
-SECRETS_FILE = Path(__file__).parent / "gocardless_secrets.json"
+SECRETS_FILE = Path(__file__).resolve().parent.parent / "data" / "gocardless_secrets.json"
 
 # Which banks are linked, and the tokens that came back. Also outside the code,
 # and also not something to commit.
-LINKS_FILE = Path(__file__).parent / "bank_links.json"
+LINKS_FILE = Path(__file__).resolve().parent.parent / "data" / "bank_links.json"
 
 # How much history to ask the bank for on a first link. Most banks cap this at
 # 90 days whatever you ask for; the app's duplicate detection means asking for
@@ -144,7 +144,7 @@ def get_token() -> str:
         raise BankLinkError(
             "No API keys found. Create a free account at "
             "bankaccountdata.gocardless.com, then save your keys as "
-            f"{SECRETS_FILE.name} next to this file: "
+            f"data/{SECRETS_FILE.name}: "
             '{"secret_id": "...", "secret_key": "..."}')
     data = _request("POST", "/token/new/", payload=s)
     tok = data.get("access")

@@ -13,7 +13,7 @@ from datetime import datetime
 from matplotlib.patches import Patch
 from collections import defaultdict
 
-from style import (
+from .style import (
     DARK_BG, PANEL_BG, GRID_COL, TEXT_COL,
     ACCENT3, ACCENT5,
     CAT_COLORS, cat_color, ACCOUNT_COLORS, FUND_COLORS, ASSET_CLASS_COLORS,

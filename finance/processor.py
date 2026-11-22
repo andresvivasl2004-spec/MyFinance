@@ -9,8 +9,8 @@ import numpy as np
 from collections import defaultdict, Counter
 from datetime import datetime
 
-import private_data
-from investments import get_classification
+from . import private_data
+from .investments import get_classification
 
 
 # ── Grocery merchant detection ────────────────────────────────────────────────

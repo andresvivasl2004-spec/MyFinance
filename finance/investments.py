@@ -8,13 +8,13 @@ the asset class per fund from the UI — and, for Fixed income funds, record
 whether the interest is Fixed or Variable — and persists it so it sticks
 across app restarts and future imports.
 
-Stored in investment_classification.json next to this file.
+Stored in data/investment_classification.json.
 """
 
 import json
 from pathlib import Path
 
-CLASSIFICATION_FILE = Path(__file__).parent / "investment_classification.json"
+CLASSIFICATION_FILE = Path(__file__).resolve().parent.parent / "data" / "investment_classification.json"
 
 ASSET_CLASSES  = ["Equity", "Fixed income", "Commodities", "Unspecified"]
 INTEREST_TYPES = ["Fixed", "Variable"]

@@ -12,7 +12,7 @@ picture of the underlying budget run-rate.
 
 Usage (from notebook)
 ---------------------
-    from anomaly import detect, print_report, adjusted_process
+    from finance.anomaly import detect, print_report, adjusted_process
 
     anomalies = detect(d)
     print_report(d, anomalies)
@@ -27,8 +27,8 @@ import matplotlib.dates as mdates
 from collections import defaultdict
 from datetime import datetime
 
-from style import DARK_BG, PANEL_BG, GRID_COL, TEXT_COL, ACCENT3, ACCENT5, CAT_COLORS
-import processor as proc
+from .style import DARK_BG, PANEL_BG, GRID_COL, TEXT_COL, ACCENT3, ACCENT5, CAT_COLORS
+from . import processor as proc
 
 
 def _euro_fmt(x, _pos=None):

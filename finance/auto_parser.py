@@ -7,9 +7,9 @@ combination automatically.
 
 Usage
 -----
-    from auto_parser import detect_and_parse
+    from finance.auto_parser import detect_and_parse
 
-    result = detect_and_parse("mayo.xlsx")
+    result = detect_and_parse("may.xlsx")
     print(result["rows"])       # list of {date, amount, description}
     print(result["detected"])   # which columns were chosen
     print(result["confidence"]) # 0.0 – 1.0

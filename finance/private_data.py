@@ -2,7 +2,7 @@
 private_data.py — Your own funds and merchants, kept out of the code.
 
 The names of the funds you hold and the places you shop say a lot about you, so
-they live in private_data.json next to this file, which is gitignored. Copy
+they live in data/private_data.json, which is gitignored. Copy
 private_data.example.json to private_data.json and fill in your own. Without
 the file the app still works; it just recognises fewer transactions.
 """
@@ -11,7 +11,7 @@ import json
 from functools import lru_cache
 from pathlib import Path
 
-PRIVATE_FILE = Path(__file__).parent / "private_data.json"
+PRIVATE_FILE = Path(__file__).resolve().parent.parent / "data" / "private_data.json"
 
 
 @lru_cache(maxsize=1)

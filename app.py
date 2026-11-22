@@ -17,45 +17,45 @@ st.set_page_config(page_title="Finance", page_icon="💰",
 
 sys.path.insert(0, str(Path(__file__).parent))
 
-from auto_parser import detect_and_parse, reparse
-import banklink as bl
-from categories  import load_categories, save_categories, add_category, delete_category, reset_to_defaults
-from categorizer import find_category, load_known_merchants, save_known_merchants
-from storage     import (save_to_global, load_from_global, GLOBAL_FILE,
+from finance.auto_parser import detect_and_parse, reparse
+import finance.banklink as bl
+from finance.categories  import load_categories, save_categories, add_category, delete_category, reset_to_defaults
+from finance.categorizer import find_category, load_known_merchants, save_known_merchants
+from finance.storage     import (save_to_global, load_from_global, GLOBAL_FILE,
                          find_duplicate_groups, group_key,
                          describe_backups, restore_backup, BACKUP_KEEP,
                          transaction_rows, update_categories)
-from duplicates  import load_dismissed, dismiss, undismiss
-from processor   import (
+from finance.duplicates  import load_dismissed, dismiss, undismiss
+from finance.processor   import (
     process, daily_summary,
     compute_net_worth_timeline, compute_allocation_timeline,
 )
-from investments import (
+from finance.investments import (
     ASSET_CLASSES, INTEREST_TYPES, CLASSIFICATION_FILE,
     get_classification, set_classification, clear_classification,
 )
-from valuation  import (
+from finance.valuation  import (
     VALUES_FILE, load_snapshots, save_snapshot, delete_snapshot,
     latest_snapshot, compute_returns, value_timeline,
 )
-from processor   import _detect_investment_fund
-from anomaly     import detect, adjusted_process, plot_anomaly_overview
+from finance.processor   import _detect_investment_fund
+from finance.anomaly     import detect, adjusted_process, plot_anomaly_overview
 # The Net Worth, Allocation-over-time and six spending panels are interactive
 # Vega-Lite charts now, not matplotlib PNGs — see interactive.py. charts.py still
 # holds the matplotlib versions of all of them (analysis.ipynb uses those, and
 # they remain the right tool for a static export); the app just no longer does.
 # Only the two investment donuts are still server-rendered images.
-from interactive import (
+from finance.interactive import (
     net_worth_chart, allocation_chart, spending_specs, investment_donut_specs,
     value_vs_contributions_chart, fund_value_donut, asset_class_value_donut,
     forecast_chart, comparison_chart, ALL_PANELS,
 )
-import forecast as fc
-from exclusions import (load_exclusions, save_exclusions, exclusions_key,
+import finance.forecast as fc
+from finance.exclusions import (load_exclusions, save_exclusions, exclusions_key,
                         suspect_months)
-import subscriptions as subs_mod
-import compare as cmp_mod
-from style       import apply_dark_theme
+import finance.subscriptions as subs_mod
+import finance.compare as cmp_mod
+from finance.style       import apply_dark_theme
 
 apply_dark_theme()
 
@@ -756,7 +756,7 @@ with st.sidebar:
         st.caption("No data yet — import a file first.")
 
     st.markdown("---")
-    st.caption("Data saved in `global_spending.xlsx`")
+    st.caption(f"Data saved in `{GLOBAL_FILE}`")
 
 
 # The cheap stand-ins for the real data in every cache key below — see the
@@ -2226,7 +2226,7 @@ def _edit_section(data_key):
 
     # Remembering the merchant is what stops the same fix being needed every
     # month. It is opt-in because it is a different, broader action than fixing
-    # one row: a blank "Bizum: ENVIADO: Sin concepto" must NOT teach the
+    # one row: a blank "Bizum: sent, no description" must NOT teach the
     # categoriser that every future description-less Bizum is whatever this one
     # happened to be.
     learn = st.checkbox(

@@ -38,7 +38,7 @@ import json
 from datetime import date, datetime
 from pathlib import Path
 
-VALUES_FILE = Path(__file__).parent / "fund_values.json"
+VALUES_FILE = Path(__file__).resolve().parent.parent / "data" / "fund_values.json"
 
 
 # ── Snapshot storage ──────────────────────────────────────────────────────────

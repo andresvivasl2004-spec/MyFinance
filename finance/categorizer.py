@@ -17,16 +17,16 @@ Adding a new bank
 
 Usage (command line)
 --------------------
-  python categorizer.py mayo.xlsx         --bank bbva
-  python categorizer.py myinvestor.csv    --bank myinvestor
+  python -m finance.categorizer may.xlsx         --bank bbva
+  python -m finance.categorizer myinvestor.csv    --bank myinvestor
 
 Usage (from notebook)
 ---------------------
-  from categorizer import categorize_csv
-  categorize_csv("mayo.xlsx",          bank="bbva",        output_path="bbva_may2026.csv")
+  from finance.categorizer import categorize_csv
+  categorize_csv("may.xlsx",          bank="bbva",        output_path="bbva_may2026.csv")
   categorize_csv("myinvestor_may.csv", bank="myinvestor",  output_path="myinvestor_may2026.csv")
 
-Learned merchants are saved in comercios_conocidos.json — you are never asked
+Learned merchants are saved in data/known_merchants.json — you are never asked
 about the same merchant twice across sessions.
 """
 
@@ -39,7 +39,7 @@ import pandas as pd
 from pathlib import Path
 from datetime import datetime
 
-import private_data
+from . import private_data
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -115,7 +115,7 @@ BANK_PARSERS: dict = {
     #   row 1 → empty
     #   row 2 → column headers  ← skiprows=2 lands here
     #   row 3+ → data
-    # Amount format: "-299.99€"  or  "1,000.00€"
+    # Amount format: "-123.45€"  or  "1,000.00€"
     "myinvestor": {
         "label":        "MyInvestor",
         "file_type":    "csv",
@@ -277,7 +277,48 @@ BASE_MERCHANTS: dict[str, str] = {
 # Your own places and funds, kept out of the code — see private_data.py.
 BASE_MERCHANTS.update(private_data.load()["merchants"])
 
-KNOWN_MERCHANTS_FILE = Path(__file__).parent / "comercios_conocidos.json"
+KNOWN_MERCHANTS_FILE = Path(__file__).resolve().parent.parent / "data" / "known_merchants.json"
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# SIGN-CONSISTENCY CHECK
+# ─────────────────────────────────────────────────────────────────────────────
+# Sign alone can't identify a self-transfer (the outgoing leg is negative
+# like any purchase; the incoming leg is positive like any income). But most
+# other categories only ever make sense with one sign, so a mismatch is a
+# strong signal of a mis-click during review — flag it, don't decide it.
+
+EXPECTED_SIGN: dict[str, str | None] = {
+    "Groceries":        "-",
+    "Dining & Food":    "-",
+    "Transport and Gasoline": "-",
+    "Natural Gas":      "-",
+    "Health and Personal Care": "-",
+    "Gym":              "-",
+    "Entertainment":    "-",
+    "Shopping":         "-",
+    "Education":        "-",
+    "Rent":             "-",
+    "Electricity":      "-",
+    "Water":            "-",
+    "Phone":            "-",
+    "Social & Gifts":   "-",
+    "Fees & Tax":       "-",
+    "Investments":      "-",
+    "Income":           "+",
+    "Interest":         "+",
+    "Self-transfer":    None,   # either sign is valid
+    "Pet":              "-",
+    "Other":            None,   # ambiguous, skip
+}
+
+
+def sign_mismatch(category: str, amount: float) -> bool:
+    """True if `amount`'s sign contradicts what's expected for `category`."""
+    expected = EXPECTED_SIGN.get(category)
+    if expected is None:
+        return False
+    return (expected == "+") != (amount >= 0)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -355,7 +396,7 @@ def _parse_amount(raw) -> float | None:
     s = str(raw).strip()
     if not s or s.lower() == "nan":
         return None
-    # MyInvestor format: "1,000.00€" or "-299.99€"
+    # MyInvestor format: "1,000.00€" or "-123.45€"
     s = s.replace("\u20ac", "").replace("\u00a0", "")
     # If thousands separator is comma and decimal is period: "1,000.00" → remove commas
     # If Spanish format "1.000,00" → swap
@@ -537,7 +578,7 @@ def list_banks() -> None:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# QUICK TEST  (run: python categorizer.py --test mayo.xlsx --bank bbva)
+# QUICK TEST  (run: python -m finance.categorizer --test may.xlsx --bank bbva)
 # ─────────────────────────────────────────────────────────────────────────────
 
 def _dry_run(input_path: str, bank: str) -> None:
@@ -574,9 +615,9 @@ if __name__ == "__main__":
     if not args.input or not args.bank:
         parser.print_help()
         print("\nExamples:")
-        print("  python categorizer.py mayo.xlsx          --bank bbva")
-        print("  python categorizer.py myinvestor_may.csv --bank myinvestor")
-        print("  python categorizer.py mayo.xlsx          --bank bbva --test\n")
+        print("  python -m finance.categorizer may.xlsx          --bank bbva")
+        print("  python -m finance.categorizer myinvestor_may.csv --bank myinvestor")
+        print("  python -m finance.categorizer may.xlsx          --bank bbva --test\n")
         sys.exit(1)
 
     if not Path(args.input).exists():

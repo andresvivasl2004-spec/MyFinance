@@ -4,7 +4,7 @@ style.py — Dark-theme colour palette & matplotlib global style for spending an
 
 import matplotlib.pyplot as plt
 
-import private_data
+from . import private_data
 
 # ── Base colours ──────────────────────────────────────────────────────────────
 DARK_BG  = "#0d1117"

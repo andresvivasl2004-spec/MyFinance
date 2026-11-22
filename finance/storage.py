@@ -8,7 +8,7 @@ Duplicate detection ensures running the same month twice never creates double en
 Typical notebook workflow
 -------------------------
     # Step 1 – categorise the raw bank file (categorizer.py)
-    out_csv = categorize_csv("mayo.xlsx", bank="bbva")
+    out_csv = categorize_csv("may.xlsx", bank="bbva")
 
     # Step 2 – review in the notebook
     df = review(out_csv)

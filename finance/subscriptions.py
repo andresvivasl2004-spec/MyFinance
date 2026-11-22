@@ -59,7 +59,7 @@ _NOISE = re.compile(
     r"card payment|debit to account|debit n|transfer completed|"
     r"transacci n con tarjeta|recibo|pago|n mero de|numero de|clientes|"
     # Month names, Spanish and English. Without these the rent never groups:
-    # it is paid as "Renta agosto", "Renta julio", … so every single payment
+    # it is paid as "Renta enero", "Renta marzo", … so every single payment
     # looks like a different merchant and the most regular commitment in the
     # data falls straight through the detector.
     r"enero|febrero|marzo|abril|mayo|junio|julio|agosto|septiembre|setiembre|"
@@ -250,8 +250,8 @@ def _category_commitments(rows, subs, today: date) -> list[dict]:
     Recurring commitments detected from the CATEGORY rather than the merchant.
 
     Some obligations are paid with different free text every single month. The
-    rent can be "Alquiler julio", "Renta agosto", "Bizum: Mes de julio" and
-    "Transfer: MES FEBRERO" — four spellings of one
+    rent can be "Alquiler enero", "Renta de marzo", "Bizum: Mes de mayo" and
+    "Transfer: MES ABRIL" — four spellings of one
     standing commitment, and no amount of cleaning will ever group them, because
     there is no merchant in the string at all.
 
