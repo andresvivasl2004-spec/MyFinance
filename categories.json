@@ -1,9 +1,9 @@
 [
   "Groceries",
   "Dining & Food",
-  "Transport",
-  "Gas",
-  "Health & Beauty",
+  "Transport and Gasoline",
+  "Natural Gas",
+  "Health and Personal Care",
   "Gym",
   "Entertainment",
   "Shopping",
@@ -18,6 +18,6 @@
   "Income",
   "Interest",
   "Self-transfer",
-  "Personal Care",
-  "Other"
+  "Other",
+  "Travel"
 ]

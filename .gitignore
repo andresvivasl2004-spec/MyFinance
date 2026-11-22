@@ -1,0 +1,37 @@
+__pycache__/
+*.pyc
+*:Zone.Identifier
+
+# ── Personal financial data — never commit ───────────────────────────────────
+# Transactions, balances, holdings, statements and their backups.
+# (A '#' only starts a comment at the START of a line in .gitignore.)
+*.xlsx
+*.xls
+*.csv
+*.pdf
+backups/
+
+# Names without a slash match in any folder, so these also cover data/.
+
+# learned merchant -> category map
+comercios_conocidos.json
+known_merchants.json
+
+# your own fund names and places (private_data.example.json is the public template)
+private_data.json
+
+# transactions you marked "not a duplicate"
+dismissed_duplicates.json
+
+# what each fund is worth, and how you classified it
+fund_values.json
+investment_classification.json
+
+# months left out of the averages
+excluded_months.json
+
+# ── Secrets — never commit ───────────────────────────────────────────────────
+gocardless_secrets.json
+bank_links.json
+.env
+.streamlit/secrets.toml

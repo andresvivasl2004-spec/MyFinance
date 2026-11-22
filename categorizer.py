@@ -39,6 +39,8 @@ import pandas as pd
 from pathlib import Path
 from datetime import datetime
 
+import private_data
+
 
 # ─────────────────────────────────────────────────────────────────────────────
 # BANK-SPECIFIC DESCRIPTION BUILDERS
@@ -135,9 +137,9 @@ BANK_PARSERS: dict = {
 CATEGORIES = [
     "Groceries",
     "Dining & Food",
-    "Transport",
-    "Gas",
-    "Health & Beauty",
+    "Transport and Gasoline",
+    "Natural Gas",
+    "Health and Personal Care",
     "Gym",
     "Entertainment",
     "Shopping",
@@ -152,7 +154,6 @@ CATEGORIES = [
     "Income",
     "Interest",
     "Self-transfer",
-    "Personal Care",
     "Pet",
     "Other",
 ]
@@ -189,34 +190,33 @@ BASE_MERCHANTS: dict[str, str] = {
     "deliveroo":             "Dining & Food",
     "pizza":                 "Dining & Food",
     "crispy chicken":        "Dining & Food",
-    "isaac peral":           "Dining & Food",   # BK22474 ISAAC PERAL (Burger King) 
     # Transport
-    "renfe":                 "Transport",
-    "cabify":                "Transport",
-    "blablacar":             "Transport",
-    "ouigo":                 "Transport",
-    "iryo":                  "Transport",
-    "alsa":                  "Transport",
-    "voltio":                "Transport",
-    "uber":                  "Transport",
-    # Fuel
-    "repsol":                "Gas",
-    "cepsa":                 "Gas",
-    "galp":                  "Gas",
+    "renfe":                 "Transport and Gasoline",
+    "cabify":                "Transport and Gasoline",
+    "blablacar":             "Transport and Gasoline",
+    "ouigo":                 "Transport and Gasoline",
+    "iryo":                  "Transport and Gasoline",
+    "alsa":                  "Transport and Gasoline",
+    "voltio":                "Transport and Gasoline",
+    "uber":                  "Transport and Gasoline",
+    # Fuel — petrol stations. This is fuel for a vehicle, not the household
+    # gas supply: mapping them to the gas utility would file a fill-up as a
+    # home-energy bill and quietly inflate it.
+    "repsol":                "Transport and Gasoline",
+    "cepsa":                 "Transport and Gasoline",
+    "galp":                  "Transport and Gasoline",
     # Health
-    "farmacia":              "Health & Beauty",
-    "clinica":               "Health & Beauty",
-    "sanitas":               "Health & Beauty",
-    "adeslas":               "Health & Beauty",
-    "dentista":              "Health & Beauty",
-    "optica":                "Health & Beauty",
-    "cnio":                  "Health & Beauty",   # cancer research center / clinic
+    "farmacia":              "Health and Personal Care",
+    "clinica":               "Health and Personal Care",
+    "sanitas":               "Health and Personal Care",
+    "adeslas":               "Health and Personal Care",
+    "dentista":              "Health and Personal Care",
+    "optica":                "Health and Personal Care",
     #Pet
     "veterinario":           "Pet",
     "centro veterinario":    "Pet",
     # Gym
     "gym":                   "Gym",
-    "iberia sl":              "Gym",
     # Entertainment / Subscriptions
     "spotify":               "Entertainment",
     "netflix":               "Entertainment",
@@ -241,13 +241,11 @@ BASE_MERCHANTS: dict[str, str] = {
     "casa del libro":        "Shopping",
     "filx":                  "Shopping",         # online shop
     # Education
-    "fundacion u.c.m.":      "Education",
-    "ucm":                   "Education",
     "universidad":           "Education",
     # Utilities
     "endesa":                "Electricity",
     "iberdrola":             "Electricity",
-    "naturgy":               "Gas",
+    "naturgy":               "Natural Gas",
     "vodafone":              "Phone",
     "movistar":              "Phone",
     "orange":                "Phone",
@@ -256,7 +254,6 @@ BASE_MERCHANTS: dict[str, str] = {
     "floristeria":           "Social & Gifts",
     "cumple":                "Social & Gifts",
     "regalo":                "Social & Gifts",
-    "muralla":               "Social & Gifts",
     # Income
     "nomina":                "Income",
     "salary":                "Income",
@@ -267,16 +264,18 @@ BASE_MERCHANTS: dict[str, str] = {
     # Self-transfers (between your own accounts)
     "myinv":                 "Self-transfer",
     "myinvestor":            "Self-transfer",
-    "transfer received":     "Self-transfer",
+    # NOTE: "transfer received" was removed on purpose — it's too generic and
+    # matched real incoming income/salary deposits, not just transfers
+    # between your own accounts. Incoming transfers now require manual
+    # categorization (or a specific learned keyword) instead of being
+    # auto-assumed to be Self-transfer.
     # Investments
-    "index msci":            "Investments",
-    "index s&p":             "Investments",
-    "ishares":               "Investments",
-    "amundi":                "Investments",
-    "robeco":                "Investments",
-    "ae dis":                "Investments",
-    "ae acc":                "Investments",
+    "index fund":            "Investments",
+    "index etf":             "Investments",
 }
+
+# Your own places and funds, kept out of the code — see private_data.py.
+BASE_MERCHANTS.update(private_data.load()["merchants"])
 
 KNOWN_MERCHANTS_FILE = Path(__file__).parent / "comercios_conocidos.json"
 

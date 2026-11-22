@@ -1,0 +1,20 @@
+{
+  "funds": {
+    "Global Equity ETF (Acc)": {
+      "keywords": ["GLOBAL EQUITY ETF ACC"],
+      "account": "Broker One",
+      "asset_class": "Equity"
+    },
+    "Physical Gold ETC": {
+      "keywords": ["PHYSICAL GOLD ETC", "PHYS GOLD"],
+      "account": "Broker One",
+      "asset_class": "Commodities"
+    }
+  },
+  "merchants": {
+    "corner cafe": "Dining & Food"
+  },
+  "grocery_keywords": {
+    "Simply": ["MAIN STREET SHOP"]
+  }
+}
