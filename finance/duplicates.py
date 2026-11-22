@@ -13,16 +13,14 @@ already used elsewhere in the app.
 import json
 from pathlib import Path
 
+from .jsonfile import read_json
+
 DISMISSED_FILE = Path(__file__).resolve().parent.parent / "data" / "dismissed_duplicates.json"
 
 
 def load_dismissed() -> set[tuple]:
     """All group keys the user has confirmed are not accidental duplicates."""
-    if not DISMISSED_FILE.exists():
-        return set()
-    with open(DISMISSED_FILE, encoding="utf-8") as f:
-        raw = json.load(f)
-    return {tuple(item) for item in raw}
+    return {tuple(item) for item in read_json(DISMISSED_FILE, [])}
 
 
 def save_dismissed(keys: set[tuple]) -> None:

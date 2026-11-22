@@ -25,6 +25,8 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+from . import dates
+
 EXCLUSIONS_FILE = Path(__file__).resolve().parent.parent / "data" / "excluded_months.json"
 
 
@@ -89,16 +91,15 @@ def suspect_months(rows, thin_share: float = 0.45) -> list[dict]:
       silent    — a bank that reports every month either side of this one
                   reported nothing in it
 
-    The month in progress is never flagged: it is genuinely incomplete and
-    saying so every day would train you to ignore the warning.
+    The month in progress, or the last one if it is only partly imported, is
+    never flagged: it is genuinely incomplete and saying so every day would
+    train you to ignore the warning.
 
     Nothing is excluded automatically. These are suggestions, and an
     unexplained-looking month can be perfectly real — the point is to put it in
     front of you, not to decide for you.
     """
-    from datetime import date
-    today = date.today()
-    in_progress = f"{today.year:04d}-{today.month:02d}"
+    in_progress = dates.in_progress_month(rows)
 
     per_month: dict[str, list] = {}
     for r in rows:

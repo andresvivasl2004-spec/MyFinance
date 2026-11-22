@@ -14,6 +14,8 @@ Stored in data/investment_classification.json.
 import json
 from pathlib import Path
 
+from .jsonfile import read_json
+
 CLASSIFICATION_FILE = Path(__file__).resolve().parent.parent / "data" / "investment_classification.json"
 
 ASSET_CLASSES  = ["Equity", "Fixed income", "Commodities", "Unspecified"]
@@ -22,10 +24,7 @@ INTEREST_TYPES = ["Fixed", "Variable"]
 
 def load_overrides() -> dict:
     """Return {fund_name: {"asset_class": str, "interest_type": str|None}}."""
-    if CLASSIFICATION_FILE.exists():
-        with open(CLASSIFICATION_FILE, encoding="utf-8") as f:
-            return json.load(f)
-    return {}
+    return read_json(CLASSIFICATION_FILE, {})
 
 
 def save_overrides(overrides: dict) -> None:

@@ -35,11 +35,14 @@ import sys
 import csv
 import json
 import argparse
+from functools import lru_cache
 import pandas as pd
 from pathlib import Path
 from datetime import datetime
 
 from . import private_data
+from .auto_parser import parse_amount
+from .jsonfile import read_json
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -217,6 +220,10 @@ BASE_MERCHANTS: dict[str, str] = {
     "centro veterinario":    "Pet",
     # Gym
     "gym":                   "Gym",
+    "vivagym":               "Gym",
+    "basic-fit":             "Gym",
+    "altafit":               "Gym",
+    "mcfit":                 "Gym",
     # Entertainment / Subscriptions
     "spotify":               "Entertainment",
     "netflix":               "Entertainment",
@@ -253,6 +260,8 @@ BASE_MERCHANTS: dict[str, str] = {
     # Social / Gifts
     "floristeria":           "Social & Gifts",
     "cumple":                "Social & Gifts",
+    "cumpleanos":            "Social & Gifts",
+    "cumpleaños":            "Social & Gifts",
     "regalo":                "Social & Gifts",
     # Income
     "nomina":                "Income",
@@ -326,10 +335,7 @@ def sign_mismatch(category: str, amount: float) -> bool:
 # ─────────────────────────────────────────────────────────────────────────────
 
 def load_known_merchants() -> dict:
-    if KNOWN_MERCHANTS_FILE.exists():
-        with open(KNOWN_MERCHANTS_FILE, "r", encoding="utf-8") as f:
-            return json.load(f)
-    return {}
+    return read_json(KNOWN_MERCHANTS_FILE, {})
 
 
 def save_known_merchants(known: dict) -> None:
@@ -341,17 +347,31 @@ def find_category(description: str, known: dict) -> str | None:
     """
     Return category for description.
     User-learned merchants are checked first, then built-in map.
-    Within each map, longer keywords win over shorter ones to avoid false
-    partial matches (e.g. 'media markt' wins over 'dia ' inside 'media').
+    Within each map, longer keywords win over shorter ones. Built-in keywords
+    must match whole words, so "zara" does not claim "Zaragoza"; the ones you
+    taught are matched anywhere, exactly as you typed them.
     """
     desc_lower = description.lower()
     for kw, cat in sorted(known.items(), key=lambda x: -len(x[0])):
         if kw in desc_lower:
             return cat
     for kw, cat in sorted(BASE_MERCHANTS.items(), key=lambda x: -len(x[0])):
-        if kw in desc_lower:
+        if _has_word(kw, desc_lower):
             return cat
     return None
+
+
+@lru_cache(maxsize=None)
+def _word_pattern(keyword: str) -> re.Pattern:
+    # An optional plural, and no letter on either side. Digits may touch it:
+    # banks glue shop numbers on, as in "lidl0123".
+    return re.compile(rf"(?<![^\W\d_]){re.escape(keyword)}(?:'?e?s)?(?![^\W\d_])")
+
+
+def _has_word(keyword: str, text: str) -> bool:
+    if keyword != keyword.strip():       # " dia ", "game ": spaced on purpose
+        return keyword in text
+    return _word_pattern(keyword).search(text) is not None
 
 
 def ask_user_category(description: str, amount: float) -> tuple[str, str | None]:
@@ -388,29 +408,6 @@ def ask_user_category(description: str, amount: float) -> tuple[str, str | None]
 # ─────────────────────────────────────────────────────────────────────────────
 # BANK-SPECIFIC READERS
 # ─────────────────────────────────────────────────────────────────────────────
-
-def _parse_amount(raw) -> float | None:
-    """Convert a raw amount value (str, int, float) to float. Returns None on failure."""
-    if raw is None:
-        return None
-    s = str(raw).strip()
-    if not s or s.lower() == "nan":
-        return None
-    # MyInvestor format: "1,000.00€" or "-123.45€"
-    s = s.replace("\u20ac", "").replace("\u00a0", "")
-    # If thousands separator is comma and decimal is period: "1,000.00" → remove commas
-    # If Spanish format "1.000,00" → swap
-    if re.search(r"\d,\d{3}", s) and "." in s:
-        s = s.replace(",", "")       # English thousands: "1,000.00" → "1000.00"
-    elif re.search(r"\d\.\d{3}", s) and "," in s:
-        s = s.replace(".", "").replace(",", ".")   # Spanish: "1.000,00" → "1000.00"
-    else:
-        s = s.replace(",", ".")      # fallback: treat comma as decimal
-    try:
-        return float(s)
-    except ValueError:
-        return None
-
 
 def _read_bank_file(path: Path, bank: str) -> list[dict]:
     """
@@ -461,7 +458,7 @@ def _read_bank_file(path: Path, bank: str) -> list[dict]:
             continue
 
         # Amount
-        amount = _parse_amount(row.get(cfg["col_amount"]))
+        amount = parse_amount(row.get(cfg["col_amount"]))
         if amount is None:
             continue
 

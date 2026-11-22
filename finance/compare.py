@@ -25,7 +25,7 @@ has doubled.
 
 from __future__ import annotations
 
-from datetime import date
+from . import dates
 
 # Investments are excluded along with the inflows. Contributing more to a fund
 # is not a cost going up — it is cash converted to another asset of equal value,
@@ -42,12 +42,8 @@ def _mk(dt) -> str:
 
 
 def complete_months(rows, exclude=()) -> list[str]:
-    """Months with data, minus the one in progress and any you've excluded."""
-    today = date.today()
-    in_progress = f"{today.year:04d}-{today.month:02d}"
-    exclude = set(exclude or ())
-    return sorted({_mk(r[0]) for r in rows
-                   if _mk(r[0]) < in_progress and _mk(r[0]) not in exclude})
+    """Months with data, minus incomplete ones and any you've excluded."""
+    return dates.complete_months(rows, exclude)
 
 
 def split_windows(rows, n: int, exclude=()) -> tuple[list[str], list[str]]:
@@ -80,9 +76,9 @@ def compare(rows, n: int = 6, exclude=()) -> dict:
     p_tot: dict[str, float] = {}
     r_tot: dict[str, float] = {}
     for dt, amount, _desc, cat, _src in rows:
-        if cat in NOT_SPENDING or amount >= 0:
+        if cat in NOT_SPENDING:
             continue
-        m, v = _mk(dt), abs(float(amount))
+        m, v = _mk(dt), -float(amount)      # a refund lowers that month's spending
         if m in p_set:
             p_tot[cat] = p_tot.get(cat, 0.0) + v
         elif m in r_set:

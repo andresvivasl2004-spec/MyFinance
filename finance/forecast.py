@@ -36,7 +36,9 @@ you keep investing would understate how much room you have. Both are computed.
 from __future__ import annotations
 
 import math
-from datetime import date
+from datetime import date, timedelta
+
+from . import dates
 
 # The lookback for every rate in here. Twelve complete months covers a full
 # annual cycle of seasonal bills (heating, water) without reaching so far back
@@ -61,23 +63,20 @@ def _mk(dt) -> str:
 
 
 def complete_months(rows, exclude=()) -> list[str]:
-    """Every month in the data except the one currently in progress, and except
-    any you have marked unrepresentative.
+    """Every complete month in the data, except any you have marked
+    unrepresentative.
 
-    The month in progress is always short — a partial month of bills looks like
-    a cheap month — and including it would drag every rate in this module down
-    by however far through the month you happen to be.
+    An incomplete month is always short — a partial month of bills looks like
+    a cheap month — and including it would drag every rate in this module down.
+    That covers the month in progress and, when the last import is old, a month
+    that was only partly imported. See dates.py.
 
     The exclusions matter here more than anywhere else in the app. A month when
     someone else bought the groceries, or when the card wasn't being used, makes
     the burn rate look lower than it is, and a burn rate that is too low makes
     the runway look longer than it is. That is the one error in a forecast worth
     going out of your way to avoid."""
-    today = date.today()
-    in_progress = f"{today.year:04d}-{today.month:02d}"
-    exclude = set(exclude or ())
-    return sorted({_mk(dt) for dt, *_ in rows
-                   if _mk(dt) < in_progress and _mk(dt) not in exclude})
+    return dates.complete_months(rows, exclude)
 
 
 def next_months(after: str, n: int) -> list[str]:
@@ -132,7 +131,9 @@ def spending_outlook(rows, months_back: int = MONTHS_BACK, exclude=()) -> dict:
         m = _mk(dt)
         if m not in window or cat in NOT_SPENDING:
             continue
-        v = abs(float(amount))
+        v = -float(amount)          # a refund lowers that month's spending
+        if cat == "Investments" and v < 0:
+            continue                # money taken out of a fund is not a negative habit
         per_cat.setdefault(cat, {})[m] = per_cat.setdefault(cat, {}).get(m, 0.0) + v
         if cat == "Investments":
             investing_total[m] += v
@@ -218,7 +219,6 @@ def income_profile(rows, months_back: int = 24,
     typical = recent[len(recent) // 2] if recent else None
     due = None
     if typical and lumps:
-        from datetime import timedelta
         due = lumps[-1]["date"] + timedelta(days=typical)
     return {"trickle_per_month": trickle_mean, "lumps": lumps,
             "gaps_days": gaps, "threshold": threshold,
@@ -258,9 +258,10 @@ def project(cash: float, outlook: dict, months: int = 12,
 
 
 def runway(cash: float, outlook: dict, monthly_income: float = 0.0,
-           keep_investing: bool = True) -> dict:
+           keep_investing: bool = True, start: date | None = None) -> dict:
     """
-    How many months the cash on hand lasts, assuming no further lump sums.
+    How many months the cash on hand lasts, counted from `start` (the day the
+    cash figure is for; today if not given), assuming no further lump sums.
 
     The optimistic and pessimistic figures solve for where the ±1σ√k band
     crosses zero, not where a flat ±1σ line does. Writing the balance after k
@@ -292,13 +293,9 @@ def runway(cash: float, outlook: dict, monthly_income: float = 0.0,
     pessimistic = solve(+1)      # spending runs above trend
     optimistic = solve(-1)       # spending runs below trend
 
-    today = date.today()
-    y, m = today.year, today.month
-    whole = int(central)
-    for _ in range(whole):
-        y, m = (y + 1, 1) if m == 12 else (y, m + 1)
+    empty = (start or date.today()) + timedelta(days=central * 365.25 / 12)
     return {"months": central, "months_lo": pessimistic, "months_hi": optimistic,
-            "burn": burn, "net": net, "empty_on": f"{y:04d}-{m:02d}"}
+            "burn": burn, "net": net, "empty_on": _mk(empty)}
 
 
 def summarise(rows, cash: float, months: int = 12,
@@ -306,26 +303,27 @@ def summarise(rows, cash: float, months: int = 12,
     """
     Everything the Forecast panel needs, in one call.
 
-    The projection starts AFTER the current calendar month, not after the last
-    complete one. `cash` is the balance as it stands today, which already has
-    this month's spending so far baked into it; beginning the projection with
-    this month would charge a second, full month of costs against a balance
-    that has already paid part of them.
+    `cash` is the balance on the last day the data covers, not today's: with an
+    old import those differ, and counting the runway from today would skip the
+    spending in between. The projection starts AFTER that day's month, not after
+    the last complete one, because the balance already has that month's spending
+    so far baked into it; beginning with the same month would charge a second,
+    full month of costs against a balance that has already paid part of them.
     """
     outlook = spending_outlook(rows, exclude=exclude)
     income = income_profile(rows, typical_month=outlook["living_mean"],
                             exclude=exclude)
     trickle = income["trickle_per_month"]
-    today = date.today()
-    this_month = f"{today.year:04d}-{today.month:02d}"
+    as_of = dates.data_as_of(rows)
+    this_month = _mk(as_of)
     return {
         "outlook": outlook,
         "income": income,
         "projection": project(cash, outlook, months, trickle, keep_investing,
                               start_after=this_month),
-        "runway": runway(cash, outlook, trickle, keep_investing),
-        "runway_no_investing": runway(cash, outlook, trickle, False),
+        "runway": runway(cash, outlook, trickle, keep_investing, as_of),
+        "runway_no_investing": runway(cash, outlook, trickle, False, as_of),
         "cash": float(cash),
-        "as_of": this_month,
+        "as_of": as_of,
         "excluded": sorted(exclude or ()),
     }

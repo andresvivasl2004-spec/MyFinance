@@ -23,6 +23,9 @@ private_data.json
 # transactions you marked "not a duplicate"
 dismissed_duplicates.json
 
+# copies of settings files that could not be read
+*.corrupt
+
 # what each fund is worth, and how you classified it
 fund_values.json
 investment_classification.json

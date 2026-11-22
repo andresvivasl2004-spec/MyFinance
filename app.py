@@ -230,7 +230,7 @@ def _cat_table(d):
         pd.DataFrame(cat_rows).style.format(
             {"Total (€)": "€{:,.2f}", "Avg/month": "€{:,.2f}",
              "Std dev": "€{:,.2f}", "95% CI (±)": "€{:,.2f}"}),
-        hide_index=True, use_container_width=True,
+        hide_index=True, width="stretch",
     )
 
 
@@ -405,7 +405,7 @@ def _comparison_section(filtered_data, data_key):
             } for x in c["categories"]]).style.format({
                 "Before (€/mo)": "€{:,.2f}", "After (€/mo)": "€{:,.2f}",
                 "Change (€/mo)": "{:+,.2f}"}),
-            hide_index=True, use_container_width=True,
+            hide_index=True, width="stretch",
         )
 
 
@@ -450,7 +450,7 @@ def _subscriptions_section(filtered_data, data_key):
                 "Now": "€{:,.2f}", "Was": "€{:,.2f}", "Per year": "€{:,.0f}",
                 "Change": lambda v: "—" if v is None else f"{v:+.0%}",
             }),
-            hide_index=True, use_container_width=True,
+            hide_index=True, width="stretch",
         )
 
     risen = [s for s in live if s["change_pct"] and s["change_pct"] > 0.01]
@@ -484,7 +484,7 @@ def _subscriptions_section(filtered_data, data_key):
                     "Now": "€{:,.2f}", "Was": "€{:,.2f}", "Per year": "€{:,.0f}",
                     "Change": lambda v: "—" if v is None else f"{v:+.0%}",
                 }),
-                hide_index=True, use_container_width=True,
+                hide_index=True, width="stretch",
             )
 
 
@@ -514,7 +514,12 @@ def _forecast_section(filtered_data, data_key, timeline):
 
     burn = o["living_mean"] + (o["investing_mean"] if keep else 0.0)
     m1, m2, m3 = st.columns(3)
-    m1.metric("Cash now", f"€{cash:,.0f}")
+    as_of = f["as_of"]
+    days_old = (date.today() - as_of).days
+    if days_old > 10:
+        st.warning(f"Your data ends on {as_of:%d %b %Y}, {days_old} days ago. Everything here "
+                   "counts from that day; import newer transactions to bring it up to date.")
+    m1.metric(f"Cash on {as_of:%d %b %Y}", f"€{cash:,.0f}")
     m2.metric("Monthly outgoings", f"€{burn:,.0f}",
               help=f"Living costs €{o['living_mean']:,.0f} "
                    f"(fixed €{o['fixed_mean']:,.0f} + variable €{o['variable_mean']:,.0f})"
@@ -558,8 +563,8 @@ def _forecast_section(filtered_data, data_key, timeline):
 
     with st.expander("What this is built from"):
         st.caption(
-            "Rates are measured over the last 12 complete months — the month in "
-            "progress is excluded, since a part-finished month looks like a cheap one."
+            "Rates are measured over the last 12 complete months — a month in progress "
+            "or only partly imported is excluded, since it would look like a cheap one."
         )
         st.dataframe(
             pd.DataFrame([
@@ -568,7 +573,7 @@ def _forecast_section(filtered_data, data_key, timeline):
                  "Pattern": c["kind"]}
                 for c in o["by_category"]
             ]).style.format({"Per month (€)": "€{:,.2f}", "σ (€)": "€{:,.2f}"}),
-            hide_index=True, use_container_width=True,
+            hide_index=True, width="stretch",
         )
         if inc["lumps"]:
             st.caption(f"Large deposits on record (≥ €{inc['threshold']:,.0f}):")
@@ -578,7 +583,7 @@ def _forecast_section(filtered_data, data_key, timeline):
                      "Description": l["description"][:48]}
                     for l in reversed(inc["lumps"][-10:])
                 ]).style.format({"Amount (€)": "€{:,.2f}"}),
-                hide_index=True, use_container_width=True,
+                hide_index=True, width="stretch",
             )
 
 
@@ -756,7 +761,9 @@ with st.sidebar:
         st.caption("No data yet — import a file first.")
 
     st.markdown("---")
-    st.caption(f"Data saved in `{GLOBAL_FILE}`")
+    if filtered_data:
+        st.caption(f"Data up to {max(r[0] for r in filtered_data):%d %b %Y}")
+    st.caption(f"Data saved in `{Path(GLOBAL_FILE).name}`")
 
 
 # The cheap stand-ins for the real data in every cache key below — see the
@@ -953,6 +960,9 @@ with tab_new:
                     )
                     m_category = st.selectbox("Category", load_categories())
                 m_desc = st.text_input("Description", placeholder="e.g. Cena con amigos")
+                m_repeat = st.checkbox(
+                    "Add it even if an identical transaction is already saved",
+                    help="For a real repeat, like a second identical bus fare the same day.")
                 submitted = st.form_submit_button("💾  Add transaction")
 
                 if submitted:
@@ -969,13 +979,15 @@ with tab_new:
                             "Description": m_desc.strip(),
                             "Category": m_category,
                         }])
-                        n = save_to_global(row, source=m_source.strip())
+                        n = save_to_global(row, source=m_source.strip(),
+                                           allow_repeats=m_repeat)
                         if n:
                             st.success(f"✅ Added: {m_date.strftime('%Y-%m-%d')} · €{m_amount:,.2f} · {m_desc.strip()} · {m_source.strip()}")
                         else:
                             st.info(
                                 "This looks like it's already in your data (same date, amount, "
-                                "description and account) — nothing added."
+                                "description and account) — nothing added. Tick the box "
+                                "above if it is a separate purchase."
                             )
 
         if uploaded:
@@ -1055,7 +1067,7 @@ with tab_new:
             st.session_state["override_desc2"],
         )
         if preview_rows:
-            st.dataframe(pd.DataFrame(preview_rows[:6]), hide_index=True, use_container_width=True)
+            st.dataframe(pd.DataFrame(preview_rows[:6]), hide_index=True, width="stretch")
         else:
             st.warning("No rows could be parsed with these column selections.")
 
@@ -1069,7 +1081,7 @@ with tab_new:
             )
         with btn_col:
             st.markdown("<br>", unsafe_allow_html=True)
-            if st.button("✓  Looks good — start categorising", use_container_width=True):
+            if st.button("✓  Looks good — start categorising", width="stretch"):
                 if not st.session_state["source"].strip():
                     st.warning("Please enter an account label.")
                 elif not preview_rows:
@@ -1092,7 +1104,7 @@ with tab_new:
                     st.rerun()
         with back_col:
             st.markdown("<br>", unsafe_allow_html=True)
-            if st.button("← Back", use_container_width=True):
+            if st.button("← Back", width="stretch"):
                 st.session_state["stage"] = "upload"
                 st.session_state["parse_result"] = None
                 st.rerun()
@@ -1133,7 +1145,7 @@ with tab_new:
 
         c1, c2, c3 = st.columns([2, 1, 1])
         with c1:
-            if st.button("✓  Confirm & next", use_container_width=True):
+            if st.button("✓  Confirm & next", width="stretch"):
                 pending_before = list(pending)   # snapshot for ← Back
                 n_auto_resolved = 0
                 st.session_state["categorized"].append({**row, "category": chosen, "keyword": kw or None})
@@ -1171,7 +1183,7 @@ with tab_new:
                 st.session_state["cat_index"] += 1
                 st.rerun()
         with c2:
-            if st.button("Skip → Other", use_container_width=True):
+            if st.button("Skip → Other", width="stretch"):
                 st.session_state["categorized"].append({**row, "category": "Other", "keyword": None})
                 st.session_state["confirm_batches"].append({
                     "count": 1, "n_auto": 0,
@@ -1180,7 +1192,7 @@ with tab_new:
                 st.session_state["cat_index"] += 1
                 st.rerun()
         with c3:
-            if idx > 0 and st.button("← Back", use_container_width=True):
+            if idx > 0 and st.button("← Back", width="stretch"):
                 batch = st.session_state["confirm_batches"].pop()
                 n = batch["count"]
                 # The manually-confirmed row is always first in the batch;
@@ -1228,7 +1240,7 @@ with tab_new:
                 "Description": st.column_config.TextColumn("Description", width="large"),
                 "Category":    st.column_config.SelectboxColumn("Category", options=CATEGORIES),
             },
-            hide_index=True, use_container_width=True, num_rows="fixed",
+            hide_index=True, width="stretch", num_rows="fixed",
         )
 
         if st.session_state["stage"] == "review":
@@ -1294,7 +1306,7 @@ with tab_analysis:
             with b1:
                 st.markdown(f'''<div class="fin-card"><h4>💵 Cash</h4><div class="val neutral">€{d["cash_worth"]:,.0f}</div><div style="color:#8b949e;font-size:.8rem;margin-top:2px">{d["cash_pct"]:.1f}% of net worth</div></div>''', unsafe_allow_html=True)
             with b2:
-                st.markdown(f'''<div class="fin-card"><h4>📈 Invested</h4><div class="val neutral">€{d["total_investments"]:,.0f}</div><div style="color:#8b949e;font-size:.8rem;margin-top:2px">{d["invested_pct"]:.1f}% of net worth</div></div>''', unsafe_allow_html=True)
+                st.markdown(f'''<div class="fin-card"><h4>📈 Invested</h4><div class="val neutral">€{d["net_investments"]:,.0f}</div><div style="color:#8b949e;font-size:.8rem;margin-top:2px">{d["invested_pct"]:.1f}% of net worth</div></div>''', unsafe_allow_html=True)
             _cash_w = max(d["cash_pct"], 0.0)
             _inv_w  = max(d["invested_pct"], 0.0)
             st.markdown(f'''
@@ -1330,7 +1342,7 @@ with tab_analysis:
                         "Total (€)":    "€{:,.2f}",
                         "% invested":   "{:.1f}%",
                     }),
-                    hide_index=True, use_container_width=True,
+                    hide_index=True, width="stretch",
                 )
                 st.caption(
                     "Cash per bank = money that ever flowed into that account (income, "
@@ -1446,7 +1458,7 @@ def _value_and_returns(filtered_data, fund_totals):
 
     edited = st.data_editor(
         pd.DataFrame(rows),
-        hide_index=True, use_container_width=True, key="val_editor",
+        hide_index=True, width="stretch", key="val_editor",
         column_config={
             "Fund": st.column_config.TextColumn(disabled=True),
             "Contributed (€)": st.column_config.NumberColumn(
@@ -1464,7 +1476,7 @@ def _value_and_returns(filtered_data, fund_totals):
 
     b1, b2, _ = st.columns([1, 1, 3])
     with b1:
-        if st.button("💾 Save valuation", use_container_width=True, key="val_save"):
+        if st.button("💾 Save valuation", width="stretch", key="val_save"):
             save_snapshot(entry_month,
                           {r["Fund"]: r["Value (€)"] for _, r in edited.iterrows()})
             st.success(f"Saved valuation for {entry_month}.")
@@ -1473,7 +1485,7 @@ def _value_and_returns(filtered_data, fund_totals):
             # and would not be refreshed by a fragment-only rerun.
             st.rerun()
     with b2:
-        if existing and st.button("🗑 Delete", use_container_width=True, key="val_del"):
+        if existing and st.button("🗑 Delete", width="stretch", key="val_del"):
             delete_snapshot(entry_month)
             st.rerun()
 
@@ -1538,7 +1550,7 @@ def _value_and_returns(filtered_data, fund_totals):
         "Annualised": (f"{f['xirr']*100:+.1f}%" if f["xirr"] is not None else "—"),
     } for f in res["funds"] if f["contributed"] or f["value"]]
     st.dataframe(
-        pd.DataFrame(detail), hide_index=True, use_container_width=True,
+        pd.DataFrame(detail), hide_index=True, width="stretch",
         column_config={
             "Contributed (€)": st.column_config.NumberColumn(format="€%.2f"),
             "Value (€)":       st.column_config.NumberColumn(format="€%.2f"),
@@ -1684,7 +1696,7 @@ with tab_investments:
                     "Total (€)":      "€{:,.2f}",
                     "% of portfolio": "{:.1f}%",
                 }),
-                hide_index=True, use_container_width=True,
+                hide_index=True, width="stretch",
             )
 
             if "Unspecified" in d["asset_class_totals"]:
@@ -1731,7 +1743,7 @@ with tab_investments:
                     st.caption("(only for Fixed income)")
             with fc4:
                 st.markdown("<br>", unsafe_allow_html=True)
-                if st.button("💾 Save", use_container_width=True, key="inv_class_save"):
+                if st.button("💾 Save", width="stretch", key="inv_class_save"):
                     set_classification(sel_fund, sel_ac, sel_it)
                     st.success(f"Saved: {sel_fund} → {sel_ac}" + (f" ({sel_it})" if sel_it else ""))
                     st.rerun()
@@ -1806,7 +1818,7 @@ with tab_networth:
                         "Invested (€)":  "€{:,.2f}",
                         "Net worth (€)": "€{:,.2f}",
                     }),
-                    hide_index=True, use_container_width=True,
+                    hide_index=True, width="stretch",
                 )
 
             st.markdown('<div class="section-title">Cash forecast</div>',
@@ -1892,7 +1904,7 @@ def _calendar_section(filtered_data, months_avail):
                         </div>''',
                         unsafe_allow_html=True,
                     )
-                    clicked = st.button("view", key=f"cal_day_{date_str}", use_container_width=True)
+                    clicked = st.button("view", key=f"cal_day_{date_str}", width="stretch")
                     if clicked:
                         # Streamlit already triggers a full rerun on this click by
                         # itself — the code below (which reads cal_selected_day)
@@ -1935,7 +1947,7 @@ def _calendar_section(filtered_data, months_avail):
         } for t in txns]
         st.dataframe(
             pd.DataFrame(rows).style.format({"Amount (€)": "€{:,.2f}"}),
-            hide_index=True, use_container_width=True,
+            hide_index=True, width="stretch",
         )
         cls = "positive" if info["total"] >= 0 else "negative"
         st.markdown(
@@ -1998,11 +2010,11 @@ def _anomaly_section(filtered_data, D_MAIN, DATA_KEY, START_MONTH, END_MONTH):
                         f"{desc0}  ·  appears **{len(group)}×**"
                     )
                 with gc2:
-                    if st.button("✓ Not a duplicate", key=f"dismiss_{key}", use_container_width=True):
+                    if st.button("✓ Not a duplicate", key=f"dismiss_{key}", width="stretch"):
                         dismiss(key)
                         st.rerun()
                 rows_g = [{"Category": c} for _, _, _, c, _ in group]
-                st.dataframe(pd.DataFrame(rows_g), hide_index=True, use_container_width=True)
+                st.dataframe(pd.DataFrame(rows_g), hide_index=True, width="stretch")
 
     if dismissed_keys:
         with st.expander(f"✓ {len(dismissed_keys)} group(s) marked as not duplicates", expanded=False):
@@ -2012,7 +2024,7 @@ def _anomaly_section(filtered_data, D_MAIN, DATA_KEY, START_MONTH, END_MONTH):
                 with dc1:
                     st.markdown(f"{date_s} · €{amount_s:,.2f} · {source_s} — {desc_s}")
                 with dc2:
-                    if st.button("↺ Re-flag", key=f"undismiss_{key}", use_container_width=True):
+                    if st.button("↺ Re-flag", key=f"undismiss_{key}", width="stretch"):
                         undismiss(key)
                         st.rerun()
 
@@ -2066,7 +2078,7 @@ Excluding them gives a cleaner picture of your real day-to-day budget.
 
         st.image(
             _cached_anomaly_png(filtered_data, DATA_KEY, START_MONTH, END_MONTH, IQR_K),
-            use_container_width=True,
+            width="stretch",
         )
 
         if high:
@@ -2077,7 +2089,7 @@ Excluding them gives a cleaner picture of your real day-to-day budget.
                     rows_m = [{"Category": c, "Amount (€)": v}
                               for c, v in sorted(cats_m.items(), key=lambda x: -x[1]) if v > 0]
                     st.dataframe(pd.DataFrame(rows_m).style.format({"Amount (€)": "€{:,.2f}"}),
-                                 hide_index=True, use_container_width=True)
+                                 hide_index=True, width="stretch")
 
         if low:
             st.markdown('<div class="section-title">Low-spend months</div>', unsafe_allow_html=True)
@@ -2107,7 +2119,7 @@ Excluding them gives a cleaner picture of your real day-to-day budget.
                                   for cat, total in sorted(d_clean["cat_totals"].items(), key=lambda x: -x[1])]
                     st.dataframe(pd.DataFrame(clean_rows).style.format(
                         {"Total (€)": "€{:,.2f}", "Avg/month (€)": "€{:,.2f}", "Std dev": "€{:,.2f}"}),
-                        hide_index=True, use_container_width=True)
+                        hide_index=True, width="stretch")
 
 
 with tab_anomaly:
@@ -2184,7 +2196,7 @@ def _edit_section(data_key):
                         "Description": r["Description"], "Category": r["Category"],
                         "Source": r["Source"], "_row": r["row"]} for r in sel])
     edited = st.data_editor(
-        df, hide_index=True, use_container_width=True, key="edit_table",
+        df, hide_index=True, width="stretch", key="edit_table",
         column_config={
             "Date": st.column_config.TextColumn("Date", disabled=True, width="small"),
             "Amount": st.column_config.NumberColumn("Amount", disabled=True,
@@ -2278,7 +2290,7 @@ with tab_settings:
         new_cat = st.text_input("New category name", placeholder='e.g. "Pets"',
                                 label_visibility="collapsed")
     with col_btn:
-        if st.button("＋  Add", use_container_width=True):
+        if st.button("＋  Add", width="stretch"):
             if new_cat.strip():
                 add_category(new_cat.strip())
                 st.rerun()
@@ -2306,7 +2318,7 @@ with tab_settings:
     if summary.empty:
         st.caption("No global file found yet.")
     else:
-        st.dataframe(summary, hide_index=True, use_container_width=True)
+        st.dataframe(summary, hide_index=True, width="stretch")
 
     # ── Backups ───────────────────────────────────────────────────────────────
     # Every save copies the previous file into backups/ before touching the
@@ -2342,7 +2354,7 @@ with tab_settings:
             with c_btn:
                 if st.button("Restore", key=f"restore_{i}",
                              disabled=bk["rows"] is None,
-                             use_container_width=True):
+                             width="stretch"):
                     try:
                         n = restore_backup(bk["path"], GLOBAL_FILE)
                         st.cache_data.clear()

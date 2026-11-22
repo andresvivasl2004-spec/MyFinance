@@ -1,4 +1,4 @@
-streamlit>=1.37      # 1.37+ for st.fragment (scoped reruns)
+streamlit>=1.64      # the version this is tested with; older ones lack width="stretch"
 altair>=5.0          # interactive Vega-Lite charts (ships with streamlit)
 pandas>=2.0
 numpy>=1.24

@@ -511,8 +511,7 @@ def _recent_window(d: dict, n: int = RECENT_MONTHS, exclude=()) -> list[str]:
     months = d.get("all_months_str") or []
     if not months:
         return []
-    today = date.today()
-    in_progress = f"{today.year:04d}-{today.month:02d}"
+    in_progress = d["in_progress_month"]
     exclude = set(exclude or ())
     # Reaching back one further month for each exclusion is the point: dropping
     # two months from an eight-month window would otherwise leave six, quietly

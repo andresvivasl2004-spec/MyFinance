@@ -8,6 +8,8 @@ If the file doesn't exist, the default list is used and written on first save.
 import json
 from pathlib import Path
 
+from .jsonfile import read_json
+
 CATEGORIES_FILE = Path(__file__).resolve().parent.parent / "data" / "categories.json"
 
 DEFAULT_CATEGORIES = [
@@ -44,11 +46,7 @@ def _sorted_display_order(cats: list[str]) -> list[str]:
 def load_categories() -> list[str]:
     """Return the current category list (from file, or defaults),
     alphabetically sorted with 'Other' always last."""
-    if CATEGORIES_FILE.exists():
-        with open(CATEGORIES_FILE, encoding="utf-8") as f:
-            cats = json.load(f)
-    else:
-        cats = DEFAULT_CATEGORIES.copy()
+    cats = read_json(CATEGORIES_FILE, DEFAULT_CATEGORIES.copy())
     return _sorted_display_order(cats)
 
 

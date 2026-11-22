@@ -9,7 +9,7 @@ import numpy as np
 from collections import defaultdict, Counter
 from datetime import datetime
 
-from . import private_data
+from . import dates, private_data
 from .investments import get_classification
 
 
@@ -129,6 +129,10 @@ def process(
     if summer_months is None:
         summer_months = {"07", "08"}
 
+    # Read before the filter below: whether a month is complete depends on how
+    # far the data goes, not on the period being looked at.
+    in_progress_month = dates.in_progress_month(all_data)
+
     # ── Apply date range filter ───────────────────────────────────────────────
     if start_month or end_month:
         def _in_range(dt):
@@ -152,6 +156,7 @@ def process(
     monthly_water       = defaultdict(float)
     monthly_phone       = defaultdict(float)
     monthly_investments = defaultdict(float)
+    monthly_redemptions = defaultdict(float)
     monthly_income      = defaultdict(float)
     monthly_interest    = defaultdict(float)
     grocery_detail      = defaultdict(lambda: defaultdict(float))
@@ -177,22 +182,15 @@ def process(
         if cat == "Interest":
             monthly_interest[mk] += amount
             continue
-        if amount >= 0 and cat != "Investments":
-            continue   # skip positive amounts that aren't income/interest —
-            # except Investments: a positive amount there is a partial
-            # redemption/rebate from a fund, not spending. It still has to be
-            # netted against that fund's total below, or the money vanishes
-            # from the books entirely (it's excluded from "cash if never
-            # invested" for being Investments-category, and if it's also
-            # skipped here it never reduces account_totals either — so it
-            # never comes back as cash anywhere, understating your real
-            # balance by exactly that amount).
 
-        if amount >= 0:
-            # cat == "Investments" and amount >= 0: a redemption/rebate.
-            # Net it against the fund's total but don't count it as money
-            # spent this month (monthly_by_cat/monthly_investments track
-            # outflows into investments, not money coming back).
+        if amount >= 0 and cat == "Investments":
+            # A redemption/rebate: money coming back from a fund. Net it
+            # against the fund's total but don't count it as money spent this
+            # month (monthly_by_cat/monthly_investments track outflows into
+            # investments, not money coming back). Skipping it altogether would
+            # make the money vanish from the books: it would neither reduce
+            # account_totals nor come back as cash anywhere.
+            monthly_redemptions[mk] += amount
             fund_name, _ = _detect_investment_fund(desc, source)
             key = (fund_name, source)
             fund_source_totals[key] -= amount
@@ -203,7 +201,8 @@ def process(
                 investment_last_date[key] = dt
             continue
 
-        abs_amt = abs(amount)
+        # Positive here is a refund, and lowers the category it came back from.
+        abs_amt = -amount
         monthly_by_cat[mk][cat] += abs_amt
 
         if cat == "Groceries":
@@ -262,9 +261,15 @@ def process(
             if cat_name != "Self-transfer":
                 cat_totals[cat_name] += val
 
-    total_income      = sum(monthly_income.values())
-    total_interest    = sum(monthly_interest.values())
-    total_investments = sum(monthly_investments.values())
+    # An excluded month leaves every total, not just spending: dropping its
+    # bills but keeping its income would report money that was never saved.
+    def _total(monthly):
+        return sum(v for m, v in monthly.items() if m not in exclude_months)
+
+    total_income      = _total(monthly_income)
+    total_interest    = _total(monthly_interest)
+    total_investments = _total(monthly_investments)
+    net_investments   = total_investments - _total(monthly_redemptions)
     # total_spending excludes Investments: moving cash into a fund isn't a
     # loss, it's converting cash into another asset of equal value.
     total_spending    = sum(cat_totals.values()) - total_investments
@@ -276,15 +281,14 @@ def process(
     net_worth         = total_inflows - total_spending
 
     # ── Net worth composition: how much of it sits as cash vs. invested ──────
-    # total_investments is the cumulative amount ever moved into investment
-    # funds/ETFs (contributions only — the app doesn't track sells or market
-    # appreciation), so it doubles as "how much of your net worth currently
+    # net_investments is the cumulative amount moved into investment funds/ETFs
+    # minus what came back out (contributions, not market value), so it doubles as "how much of your net worth currently
     # sits in your investment accounts". Whatever's left of net_worth is cash
     # sitting in your regular bank accounts.
-    cash_worth = net_worth - total_investments
+    cash_worth = net_worth - net_investments
     if net_worth:
         cash_pct       = cash_worth / net_worth * 100
-        invested_pct   = total_investments / net_worth * 100
+        invested_pct   = net_investments / net_worth * 100
     else:
         cash_pct       = 0.0
         invested_pct   = 0.0
@@ -327,7 +331,8 @@ def process(
     ci_income = 1.96 * std_income / np.sqrt(n_income_months) if n_income_months > 1 else 0.0
 
     # ── Last-12-months averages (excluding summer) ────────────────────────────
-    cutoff        = sorted(all_months_str)[-12:]
+    # Complete months only: a part-finished month would pull the average down.
+    cutoff        = [m for m in all_months_str if m < in_progress_month][-12:]
     active_months = [m for m in cutoff if m.split("-")[1] not in summer_months]
 
     def _filter(d):
@@ -447,6 +452,8 @@ def process(
         "total_income":         total_income,
         "total_interest":       total_interest,
         "total_investments":    total_investments,
+        "net_investments":      net_investments,
+        "in_progress_month":    in_progress_month,
         "total_spending":       total_spending,
         "total_inflows":        total_inflows,
         "net_worth":            net_worth,
@@ -759,7 +766,7 @@ def print_summary(d: dict, accounts_label: str = "", period_label: str = "") -> 
     print(f"  {'─'*20}   {'─'*12}")
     print(f"  {'NET WORTH':<20} €{d['net_worth']:>12,.2f}")
     print(f"    {'· Cash':<18} €{d['cash_worth']:>12,.2f}   ({d['cash_pct']:.1f}%)")
-    print(f"    {'· Invested':<18} €{d['total_investments']:>12,.2f}   ({d['invested_pct']:.1f}%)")
+    print(f"    {'· Invested':<18} €{d['net_investments']:>12,.2f}   ({d['invested_pct']:.1f}%)")
 
     print(f"\n  ── TOTAL MONTHLY SPENDING")
     print(f"  {'Avg/Month':<22} €{d['total_monthly_avg']:>9,.2f}   "

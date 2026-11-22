@@ -33,6 +33,8 @@ from __future__ import annotations
 import re
 from datetime import date, timedelta
 
+from . import dates
+
 # How far back to look. This feature answers "what do I pay now, and when did
 # it change" — so the window has to be long enough to contain a price rise and
 # short enough to exclude a previous life. Over a long history rent alone
@@ -149,12 +151,15 @@ def detect(rows, min_charges: int = MIN_CHARGES, today: date | None = None) -> l
     """
     Every recurring charge the data supports, newest price first.
 
+    "Today" is the last day the data covers, so that an old import does not make
+    every subscription look cancelled.
+
     Only outgoings are considered, and investments and self-transfers are
     excluded — a monthly standing order into a fund is regular and stable and
     would otherwise dominate this list, but it isn't a subscription and its
     "price" going up is a decision you made.
     """
-    today = today or date.today()
+    today = today or dates.data_as_of(rows)
     cutoff = _shift(f"{today.year:04d}-{today.month:02d}", -LOOKBACK_MONTHS)
     groups: dict[str, list] = {}
     meta: dict[str, dict] = {}
@@ -326,7 +331,7 @@ def _months_between(a: str, b: str) -> list[str]:
 
 def detect_all(rows, today: date | None = None) -> list[dict]:
     """Merchant-level subscriptions plus category-level commitments, together."""
-    today = today or date.today()
+    today = today or dates.data_as_of(rows)
     subs = detect(rows, today=today)
     for s in subs:
         s.setdefault("basis", "merchant")

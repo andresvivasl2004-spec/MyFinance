@@ -75,14 +75,17 @@ def parse_amount(s) -> float | None:
     if pd.isna(s):
         return None
     s = str(s).strip().replace("€", "").replace(" ", "").replace("\xa0", "")
+    s = s.replace("\u2212", "-")          # typographic minus
     if not s or s.lower() == "nan":
         return None
-    # Spanish thousands: 1.234,56 → 1234.56
-    if re.search(r"\d\.\d{3}[,]", s):
-        s = s.replace(".", "").replace(",", ".")
-    elif re.search(r"\d,\d{3}\.", s):
-        # English thousands: 1,234.56 → 1234.56
-        s = s.replace(",", "")
+    last_dot, last_comma = s.rfind("."), s.rfind(",")
+    if last_dot >= 0 and last_comma >= 0:
+        # Both present: whichever comes last is the decimal mark.
+        thousands, decimal = (".", ",") if last_comma > last_dot else (",", ".")
+        s = s.replace(thousands, "").replace(decimal, ".")
+    elif re.fullmatch(r"[+-]?[1-9]\d{0,2}([.,]\d{3})+", s):
+        # Only groups of three, as in "1.234": thousands. Money has two decimals.
+        s = s.replace(".", "").replace(",", "")
     else:
         s = s.replace(",", ".")
     try:

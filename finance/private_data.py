@@ -7,9 +7,10 @@ private_data.example.json to private_data.json and fill in your own. Without
 the file the app still works; it just recognises fewer transactions.
 """
 
-import json
 from functools import lru_cache
 from pathlib import Path
+
+from .jsonfile import read_json
 
 PRIVATE_FILE = Path(__file__).resolve().parent.parent / "data" / "private_data.json"
 
@@ -19,8 +20,5 @@ def load() -> dict:
     """{"funds": {name: {"keywords", "account", "asset_class"}},
     "merchants": {keyword: category}, "grocery_keywords": {shop: [keyword]}}.
     Read once; restart the app after editing the file."""
-    data = {}
-    if PRIVATE_FILE.exists():
-        with open(PRIVATE_FILE, encoding="utf-8") as f:
-            data = json.load(f)
+    data = read_json(PRIVATE_FILE, {})
     return {k: data.get(k, {}) for k in ("funds", "merchants", "grocery_keywords")}

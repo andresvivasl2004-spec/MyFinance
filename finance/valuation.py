@@ -194,7 +194,9 @@ def compute_returns(rows: list[tuple], detect_fund,
                     snapshot_month: str | None = None) -> dict:
     """
     Combine contributions with the recorded valuation into a per-fund and total
-    return picture. Returns {"month", "funds": [...], "totals": {...}} — or
+    return picture. A fund you hold but didn't value is left out of the totals,
+    on both sides: counting it as worth nothing would report its whole cost as a
+    loss. Returns {"month", "funds": [...], "totals": {...}} — or
     {"month": None, ...} when nothing has been valued yet, which the UI treats
     as "ask for a snapshot" rather than as an error.
     """
@@ -213,10 +215,12 @@ def compute_returns(rows: list[tuple], detect_fund,
     for name in sorted(set(flows) | set(values)):
         cfs = [(d, a) for d, a in flows.get(name, []) if d <= as_of]
         contributed = -sum(a for _, a in cfs)          # positive = money in
-        value = float(values.get(name, 0.0))
-        gain = value - contributed
-        simple = (gain / contributed) if contributed > 0 else None
-        rate = xirr(cfs + [(as_of, value)]) if (cfs and value > 0) else None
+        # Not valued but nothing left in it either: sold, so worth zero.
+        valued = name in values or contributed <= 0.005
+        value = float(values.get(name, 0.0)) if valued else None
+        gain = value - contributed if valued else None
+        simple = (gain / contributed) if valued and contributed > 0 else None
+        rate = xirr(cfs + [(as_of, value)]) if (cfs and value) else None
         funds.append({
             "fund": name,
             "contributed": contributed,
@@ -224,13 +228,14 @@ def compute_returns(rows: list[tuple], detect_fund,
             "gain": gain,
             "simple_return": simple,
             "xirr": rate,
-            "valued": name in values,
+            "valued": valued,
         })
 
-    funds.sort(key=lambda f: -f["value"])
-    all_cfs = [cf for name in flows for cf in flows[name] if cf[0] <= as_of]
+    funds.sort(key=lambda f: -(f["value"] or 0.0))
+    counted = {f["fund"] for f in funds if f["valued"]}
+    all_cfs = [cf for name in flows if name in counted for cf in flows[name] if cf[0] <= as_of]
     total_contrib = -sum(a for _, a in all_cfs)
-    total_value = sum(f["value"] for f in funds)
+    total_value = sum(f["value"] for f in funds if f["valued"])
     total_gain = total_value - total_contrib
     totals = {
         "contributed": total_contrib,
@@ -248,20 +253,26 @@ def value_timeline(rows: list[tuple], detect_fund) -> list[dict]:
     Month-by-month cost basis, with the recorded valuation wherever one exists.
 
     Contributions are known for every month — they come from transactions. Value
-    is only known for months you actually recorded a snapshot in, so `value` is
-    None elsewhere rather than interpolated or carried forward. Carrying the last
-    figure forward would draw a flat line through months the portfolio certainly
-    did move, inventing a fact; leaving a gap says "not measured", which is true.
+    is only known for months you actually recorded a snapshot in, and only when
+    the snapshot covers every fund held then, so `value` is None elsewhere rather
+    than interpolated or carried forward. Carrying the last figure forward would
+    draw a flat line through months the portfolio certainly did move, inventing a
+    fact; leaving a gap says "not measured", which is true.
 
     Returns oldest-first: [{month, contributed, value, gain}, ...].
     """
     snaps = load_snapshots()
     contribs: list[tuple[str, float]] = []
+    per_fund: dict[str, dict[str, float]] = {}      # month -> fund -> paid in
     for dt, amount, desc, cat, source in rows:
         if cat != "Investments":
             continue
         when = dt.date() if hasattr(dt, "date") else dt
-        contribs.append((f"{when.year:04d}-{when.month:02d}", -float(amount)))
+        mk = f"{when.year:04d}-{when.month:02d}"
+        contribs.append((mk, -float(amount)))
+        fund_name, _ = detect_fund(desc, source)
+        month = per_fund.setdefault(mk, {})
+        month[fund_name] = month.get(fund_name, 0.0) - float(amount)
     if not contribs and not snaps:
         return []
 
@@ -282,9 +293,14 @@ def value_timeline(rows: list[tuple], detect_fund) -> list[dict]:
         per_month[mk] = per_month.get(mk, 0.0) + amt
 
     out, running = [], 0.0
+    held: dict[str, float] = {}
     for mk in all_months:
         running += per_month.get(mk, 0.0)
-        value = sum(snaps[mk].values()) if mk in snaps else None
+        for name, amt in per_fund.get(mk, {}).items():
+            held[name] = held.get(name, 0.0) + amt
+        complete = mk in snaps and all(
+            name in snaps[mk] for name, amt in held.items() if amt > 0.005)
+        value = sum(snaps[mk].values()) if complete else None
         out.append({
             "month": mk,
             "contributed": round(running, 2),

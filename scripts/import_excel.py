@@ -13,6 +13,7 @@ from pathlib import Path
 from datetime import datetime
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+from finance.auto_parser import parse_amount
 from finance.storage import save_to_global, GLOBAL_FILE
 
 # Date formats tried automatically
@@ -34,40 +35,31 @@ def parse_date(raw) -> str | None:
     return None
 
 
-def load_existing_excel(path: str) -> pd.DataFrame:
-    # Try different engines until one works
-    df = None
-    for engine in ["openpyxl", "xlrd", None]:
-        try:
-            kwargs = {"header": None, "dtype": str}
-            if engine:
-                kwargs["engine"] = engine
-            df = pd.read_excel(str(path), **kwargs)
-            break
-        except Exception:
-            continue
-    if df is None:
-        raise ValueError(
-            "Could not read the file. Make sure it's a valid .xlsx or .xls file.\n"
-            "If it's a .csv, rename it to .csv and import it like this:\n"
-            "  python scripts/import_excel.py file.csv"
-        )
-
-    # ── CSV support ──────────────────────────────────────────────────────────
+def _read_file(path: str) -> pd.DataFrame:
     if str(path).lower().endswith(".csv"):
-        df = None
-        for sep in ["	", ",", ";"]:
-            for enc in ["utf-8-sig", "latin-1", "utf-8"]:
+        for sep in ["\t", ",", ";"]:
+            for enc in ["utf-8-sig", "latin-1"]:
                 try:
                     df = pd.read_csv(str(path), sep=sep, header=None, dtype=str, encoding=enc)
-                    if len(df.columns) >= 4:
-                        break
                 except Exception:
                     continue
-            if df is not None and len(df.columns) >= 4:
-                break
-        if df is None:
-            raise ValueError("Could not read the CSV file.")
+                if len(df.columns) >= 4:
+                    return df
+        raise ValueError("Could not read the CSV file. It needs at least 4 columns: "
+                         "date, amount, description, category.")
+    for engine in ["openpyxl", "xlrd", None]:
+        try:
+            return pd.read_excel(str(path), header=None, dtype=str,
+                                 **({"engine": engine} if engine else {}))
+        except Exception:
+            continue
+    raise ValueError("Could not read the file. Make sure it's a valid .xlsx, .xls or .csv file.")
+
+
+def load_existing_excel(path: str) -> pd.DataFrame:
+    """The file's transactions. `.attrs["skipped"]` lists the rows that could not
+    be read, so none is ever dropped without a word."""
+    df = _read_file(path)
 
     # Detect whether there's a header row (if the first row contains words like Date/Amount)
     first = " ".join(str(v).lower() for v in df.iloc[0].tolist())
@@ -79,23 +71,14 @@ def load_existing_excel(path: str) -> pd.DataFrame:
         df.columns = ["Date", "Amount", "Description", "Category"] + [f"extra_{i}" for i in range(len(df.columns) - 4)]
 
     df = df[["Date", "Amount", "Description", "Category"]].copy()
-    df = df.dropna(subset=["Date", "Amount"])
+    df = df.dropna(how="all")
 
-    # Normalise dates
-    df["Date"] = df["Date"].apply(parse_date)
-    df = df[df["Date"].notna()].copy()
-
-    # Normalise amounts
-    df["Amount"] = (
-        df["Amount"].astype(str)
-        .str.replace("€", "", regex=False)
-        .str.replace(",", ".", regex=False)
-        .str.strip()
-    )
-    df["Amount"] = pd.to_numeric(df["Amount"], errors="coerce")
-    df = df[df["Amount"].notna()].copy()
-
-    return df.reset_index(drop=True)
+    parsed = df.assign(Date=df["Date"].apply(parse_date), Amount=df["Amount"].apply(parse_amount))
+    ok = parsed["Date"].notna() & parsed["Amount"].notna()
+    result = parsed[ok].reset_index(drop=True)
+    result["Amount"] = result["Amount"].astype(float)
+    result.attrs["skipped"] = df[~ok].values.tolist()
+    return result
 
 
 def main():
@@ -113,6 +96,13 @@ def main():
     df = load_existing_excel(str(path))
 
     print(f"\n  {len(df)} rows found")
+    skipped = df.attrs["skipped"]
+    if skipped:
+        print(f"  ⚠ {len(skipped)} row(s) could not be read and will NOT be imported:")
+        for row in skipped:
+            print(f"      {row}")
+    if df.empty:
+        sys.exit(1)
     print(f"  Period: {df['Date'].min()} → {df['Date'].max()}")
     print(f"\nFirst rows:")
     print(df.head(5).to_string(index=False))
@@ -123,7 +113,7 @@ def main():
         sys.exit(0)
 
     n = save_to_global(df, source=args.source)
-    print(f"\n✅ Done. {n} new rows added to {GLOBAL_FILE}")
+    print(f"\n✅ Done. {n} new rows added to {Path(GLOBAL_FILE).name}")
 
 
 if __name__ == "__main__":

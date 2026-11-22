@@ -24,6 +24,7 @@ Typical notebook workflow
 
 import os
 import shutil
+from collections import Counter
 from datetime import datetime
 import pandas as pd
 from pathlib import Path
@@ -31,7 +32,8 @@ from openpyxl import load_workbook
 from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 from openpyxl.utils import get_column_letter
 
-GLOBAL_FILE = "gastos_global.xlsx"
+# Absolute, so the app finds the same file whatever folder it is started from.
+GLOBAL_FILE = str(Path(__file__).resolve().parent.parent / "gastos_global.xlsx")
 SHEET_NAME  = "Transactions"
 COLUMNS     = ["Date", "Amount", "Description", "Category", "Source"]
 
@@ -105,6 +107,7 @@ def save_to_global(
     csv_path_or_df,
     source: str,
     global_file: str = GLOBAL_FILE,
+    allow_repeats: bool = False,
 ) -> int:
     """
     Append new transactions to the global Excel file.
@@ -115,6 +118,7 @@ def save_to_global(
                      reviewed and edited in the notebook.
     source         : Account label, e.g. "BBVA", "MyInvestor", "Trade Republic".
     global_file    : Path to the global Excel file (created if it doesn't exist).
+    allow_repeats  : Add rows even if identical ones are already stored.
 
     Returns
     -------
@@ -139,11 +143,14 @@ def save_to_global(
     else:
         existing_df = pd.DataFrame(columns=COLUMNS)
 
-    # Deduplicate: keep only rows not already in the global file
-    if len(existing_df) > 0:
-        existing_keys = set(_dedup_keys(existing_df))
-        new_keys = _dedup_keys(new_df)
-        mask = [k not in existing_keys for k in new_keys]
+    # Deduplicate by counting: two identical bus fares on one day are two real
+    # rows, so each stored copy cancels out only one copy in the new batch.
+    if len(existing_df) > 0 and not allow_repeats:
+        stored = Counter(_dedup_keys(existing_df))
+        mask = []
+        for k in _dedup_keys(new_df):
+            mask.append(stored[k] == 0)
+            stored[k] -= stored[k] > 0
         rows_to_add = new_df[mask]
     else:
         rows_to_add = new_df
